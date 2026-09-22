@@ -9,31 +9,77 @@ import {
   Platform, 
   TouchableWithoutFeedback, 
   Keyboard, 
-  Alert 
+  Alert,
+  ActivityIndicator,
+  Modal
 } from 'react-native';
 import { useRouter } from 'expo-router';
-// Import the clean useAuth context hook directly from your sibling layout file
 import { useAuth } from "./_layout";
+
+const YOUR_COMPUTER_IP = '192.168.1.35'; 
+const FASTAPI_URL = `http://${YOUR_COMPUTER_IP}:8000`;
 
 export default function LoginScreen() {
   const router = useRouter();
-  const { login } = useAuth(); // Safely grab the context login action
+  const { login } = useAuth();
   
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [unauthorizedModalVisible, setUnauthorizedModalVisible] = useState(false);
 
-  const handleLogin = () => {
+  const handleLogin = async () => {
     if (!email.trim() || !password.trim()) {
-      Alert.alert('Error', 'Please fill in all fields.');
+      Alert.alert('Validation Error', 'Please fill in both email and password.');
       return;
     }
 
-    console.log('Logging in with:', email, password);
+    setLoading(true);
 
-    // Fire our context login to toggle layout authentication state.
-    // The Route Guard in _layout.tsx will instantly detect this change 
-    // and route the user cleanly into the /(tabs) dashboard.
-    login();
+    try {
+      const response = await fetch(`${FASTAPI_URL}/auth/login`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          email: email.trim().toLowerCase(),
+          password: password,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (response.ok) {
+        const userRole = (data.role || data.user?.role || '').toString().toLowerCase().trim();
+
+        if (userRole === 'farmer') {
+          // Pass full user details to AuthContext
+          login({
+            name: data.username || data.name || email.split('@')[0],
+            email: data.email || email,
+            role: data.role || 'Farmer'
+          });
+          
+          router.replace('/(tabs)');
+        } else {
+          setUnauthorizedModalVisible(true);
+        }
+      } else {
+        Alert.alert(
+          'Authentication Failed', 
+          data.detail || 'Invalid email or password configuration.'
+        );
+      }
+    } catch (error) {
+      console.error('Mobile Auth Network Error:', error);
+      Alert.alert(
+        'Connection Error', 
+        'Unable to reach the AquaSense backend server. Please verify network connectivity and host IP.'
+      );
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -44,19 +90,17 @@ export default function LoginScreen() {
       <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
         <View style={styles.innerContainer}>
           
-          {/* Logo & Header Title */}
           <View style={styles.headerContainer}>
             <Text style={styles.logoText}>💧</Text>
             <Text style={styles.titleText}>AquaSense</Text>
             <Text style={styles.subtitleText}>Water Quality Monitoring System</Text>
           </View>
 
-          {/* Form Context Fields */}
           <View style={styles.formContainer}>
             <Text style={styles.inputLabel}>Email Address</Text>
             <TextInput
               style={styles.inputField}
-              placeholder="Enter your email"
+              placeholder="Enter your registered email"
               placeholderTextColor="#94a3b8"
               keyboardType="email-address"
               autoCapitalize="none"
@@ -77,29 +121,59 @@ export default function LoginScreen() {
               onChangeText={setPassword}
             />
 
-            {/* Action Execution Button */}
             <TouchableOpacity 
-              style={styles.loginButton} 
+              style={[styles.loginButton, loading && styles.loginButtonDisabled]} 
               onPress={handleLogin}
               activeOpacity={0.8}
+              disabled={loading}
             >
-              <Text style={styles.loginButtonText}>Sign In</Text>
+              {loading ? (
+                <ActivityIndicator color="#ffffff" />
+              ) : (
+                <Text style={styles.loginButtonText}>Sign In</Text>
+              )}
             </TouchableOpacity>
 
-            {/* Registration Backup Hint */}
             <TouchableOpacity 
               style={styles.registerLink} 
-              onPress={() => Alert.alert('Notice', 'No registration required yet. Just type any mock credentials above to log in immediately.')}
+              onPress={() => Alert.alert('Notice', 'Please contact your AquaSense administrator to create new user credentials.')}
               activeOpacity={0.7}
             >
               <Text style={styles.registerLinkText}>
-                Don't have an account? <Text style={styles.registerTextBold}>Explore App</Text>
+                Need an account? <Text style={styles.registerTextBold}>Contact Admin</Text>
               </Text>
             </TouchableOpacity>
           </View>
 
         </View>
       </TouchableWithoutFeedback>
+
+      <Modal
+        animationType="fade"
+        transparent={true}
+        visible={unauthorizedModalVisible}
+        onRequestClose={() => setUnauthorizedModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContentCard}>
+            <View style={styles.modalIconBadge}>
+              <Text style={styles.modalIconText}>🚫</Text>
+            </View>
+            <Text style={styles.modalTitleText}>Not Authorized</Text>
+            <Text style={styles.modalBodyText}>
+              Access is restricted to Farmer accounts only. Your account does not have permission to view this application.
+            </Text>
+            <TouchableOpacity 
+              style={styles.modalDismissButton}
+              onPress={() => setUnauthorizedModalVisible(false)}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.modalDismissButtonText}>Okay</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
     </KeyboardAvoidingView>
   );
 }
@@ -173,6 +247,9 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.2,
     shadowRadius: 4,
   },
+  loginButtonDisabled: {
+    opacity: 0.7,
+  },
   loginButtonText: {
     color: '#ffffff',
     fontSize: 16,
@@ -188,6 +265,64 @@ const styles = StyleSheet.create({
   },
   registerTextBold: {
     color: '#1d4ed8',
+    fontWeight: '700',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(15, 23, 42, 0.6)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  modalContentCard: {
+    backgroundColor: '#ffffff',
+    borderRadius: 24,
+    padding: 24,
+    width: '100%',
+    maxWidth: 340,
+    alignItems: 'center',
+    elevation: 10,
+    shadowColor: '#0f172a',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.2,
+    shadowRadius: 15,
+  },
+  modalIconBadge: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: '#fee2e2',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  modalIconText: {
+    fontSize: 28,
+  },
+  modalTitleText: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: '#0f172a',
+    marginBottom: 8,
+  },
+  modalBodyText: {
+    fontSize: 14,
+    color: '#64748b',
+    textAlign: 'center',
+    lineHeight: 20,
+    marginBottom: 24,
+  },
+  modalDismissButton: {
+    backgroundColor: '#1d4ed8',
+    borderRadius: 12,
+    height: 48,
+    width: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalDismissButtonText: {
+    color: '#ffffff',
+    fontSize: 15,
     fontWeight: '700',
   },
 });

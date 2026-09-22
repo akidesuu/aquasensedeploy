@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import type { FormEvent } from 'react';
 import { ShieldAlert, Lock, User, Loader2 } from 'lucide-react';
 
 interface LoginProps {
@@ -11,7 +12,7 @@ export default function Login({ onLoginSuccess }: LoginProps) {
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setError(null);
     setIsLoading(true);
@@ -32,8 +33,12 @@ export default function Login({ onLoginSuccess }: LoginProps) {
       }
 
       onLoginSuccess(data.username);
-    } catch (err: any) {
-      setError(err.message || 'Cannot connect to backend gateway server.');
+    } catch (err: unknown) {
+      if (err instanceof Error) {
+        setError(err.message);
+      } else {
+        setError('Cannot connect to backend gateway server.');
+      }
     } finally {
       setIsLoading(false);
     }
@@ -42,11 +47,14 @@ export default function Login({ onLoginSuccess }: LoginProps) {
   return (
     <div style={styles.loginContainer}>
       <div style={styles.loginCard}>
-        
         {/* Portal Branding Header */}
         <div style={styles.brandHeader}>
           <div style={styles.logoBadge}>
-            <svg style={{ width: '24px', height: '24px', color: '#ffffff' }} fill="currentColor" viewBox="0 0 24 24">
+            <svg
+              style={{ width: '24px', height: '24px', color: '#ffffff' }}
+              fill="currentColor"
+              viewBox="0 0 24 24"
+            >
               <path d="M12 21.5c-3.03 0-5.5-2.47-5.5-5.5 0-2.88 2.31-5.69 5.25-9.33.13-.16.35-.16.49 0 2.94 3.64 5.25 6.45 5.25 9.33 0 3.03-2.47 5.5-5.5 5.5z" />
             </svg>
           </div>
@@ -98,7 +106,7 @@ export default function Login({ onLoginSuccess }: LoginProps) {
 
           <button type="submit" disabled={isLoading} style={styles.submitBtn}>
             {isLoading ? (
-              <Loader2 size={18} style={{ animation: 'spin 1s linear infinite' }} />
+              <Loader2 size={18} className="animate-spin" />
             ) : (
               'Establish Secure Session'
             )}
@@ -109,7 +117,7 @@ export default function Login({ onLoginSuccess }: LoginProps) {
   );
 }
 
-const styles = {
+const styles: Record<string, React.CSSProperties> = {
   loginContainer: {
     display: 'flex',
     justifyContent: 'center',
@@ -118,7 +126,7 @@ const styles = {
     width: '100vw',
     backgroundColor: '#f8fafc',
     fontFamily: 'sans-serif',
-    boxSizing: 'border-box' as const,
+    boxSizing: 'border-box',
   },
   loginCard: {
     width: '100%',
@@ -126,14 +134,15 @@ const styles = {
     backgroundColor: '#ffffff',
     padding: '40px',
     borderRadius: '24px',
-    boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.05), 0 10px 10px -5px rgba(0, 0, 0, 0.02)',
+    boxShadow:
+      '0 20px 25px -5px rgba(0, 0, 0, 0.05), 0 10px 10px -5px rgba(0, 0, 0, 0.02)',
     border: '1px solid #e2e8f0',
     margin: '0 16px',
-    boxSizing: 'border-box' as const,
+    boxSizing: 'border-box',
   },
   brandHeader: {
     display: 'flex',
-    flexDirection: 'column' as const,
+    flexDirection: 'column',
     alignItems: 'center',
     marginBottom: '32px',
   },
@@ -177,12 +186,12 @@ const styles = {
   },
   formContainer: {
     display: 'flex',
-    flexDirection: 'column' as const,
+    flexDirection: 'column',
     gap: '20px',
   },
   inputGroup: {
     display: 'flex',
-    flexDirection: 'column' as const,
+    flexDirection: 'column',
     gap: '6px',
   },
   inputLabel: {
@@ -192,12 +201,12 @@ const styles = {
     letterSpacing: '0.05em',
   },
   inputWrapper: {
-    position: 'relative' as const,
+    position: 'relative',
     display: 'flex',
     alignItems: 'center',
   },
   inputIcon: {
-    position: 'absolute' as const,
+    position: 'absolute',
     left: '14px',
   },
   textInput: {
@@ -209,7 +218,7 @@ const styles = {
     border: '1px solid #e2e8f0',
     borderRadius: '12px',
     outline: 'none',
-    boxSizing: 'border-box' as const,
+    boxSizing: 'border-box',
   },
   submitBtn: {
     display: 'flex',

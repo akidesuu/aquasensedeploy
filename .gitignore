@@ -1,17 +1,12 @@
-# Dependencies
+# Virtual environments
+backend/venv/
+mobile/.venv/
 node_modules/
-.pnpm-store/
-
-# Production builds
-dist/
-build/
 .expo/
-web-build/
 
-# Operating System files
-.DS_Store
-Thumbs.db
+# Python bytecode
+__pycache__/
+*.pyc
 
-# Local environment configs
+# Environment variables
 .env
-.env.local
