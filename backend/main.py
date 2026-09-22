@@ -153,7 +153,7 @@ class TelemetryPayload(BaseModel):
     temperature: float = Field(..., json_schema_extra={"example": 28.5})
     ph: float = Field(..., json_schema_extra={"example": 7.2})
     turbidity: float = Field(..., json_schema_extra={"example": 15.0})
-    precipitation: float = Field(0.0, json_schema_extra={"example": 0.0})
+    precipitation: Optional[float] = Field(0.0, json_schema_extra={"example": 0.0})
 
 class UserAuthPayload(BaseModel):
     email: Optional[str] = Field(None, json_schema_extra={"example": "lennon@aquasense.com"})
