@@ -1,6 +1,7 @@
 import os
 import joblib
 import bcrypt
+import certifi
 import asyncio
 import numpy as np
 import pandas as pd
@@ -47,7 +48,7 @@ app.add_middleware(
 )
 
 # ==============================================================================
-# 3. MONGODB ATLAS CONNECTION
+# 3. MONGODB ATLAS CONNECTION (WITH SSL/TLS CERTIFI FIX)
 # ==============================================================================
 MONGO_URI = os.getenv(
     "MONGO_URI", 
@@ -55,7 +56,11 @@ MONGO_URI = os.getenv(
 )
 
 try:
-    mongo_client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
+    mongo_client = MongoClient(
+        MONGO_URI, 
+        serverSelectionTimeoutMS=5000,
+        tlsCAFile=certifi.where()
+    )
     db = mongo_client['aquasense_db']
     mongo_client.server_info()
     print(">>> Success: Connected securely to MongoDB Atlas cluster.")
@@ -672,7 +677,7 @@ async def run_predict_endpoint(payload: TelemetryPayload):
     
     return {
         "predicted_do": ml_result.get("dissolved_oxygen_mg_L", 7.0),
-        "status": ml_result.file.get("status", "success") if hasattr(ml_result, "file") else ml_result.get("status", "success"),
+        "status": ml_result.get("status", "success"),
         "device_id": payload.device_id
     }
 

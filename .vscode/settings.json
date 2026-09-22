@@ -12,9 +12,15 @@
         "Frontends",
         "gensalt",
         "hashpw",
+        "joblib",
+        "keras",
         "LSTM",
         "Nillama",
+        "numpy",
         "Pressable",
+        "pycache",
+        "pydantic",
+        "pymongo",
         "Santi",
         "Semeros",
         "sparkline",
@@ -23,6 +29,8 @@
         "turb",
         "upserted",
         "usermanagement",
+        "uvicorn",
+        "venv",
         "worklets"
     ]
 }
