@@ -37,7 +37,7 @@ interface AlertScreenProps {
 }
 
 // Set host IP for local network development
-const SERVER_IP: string = "192.168.18.21"; // Replace with host IP address
+const SERVER_IP: string = "192.168.18.21";
 const API_BASE_URL = Platform.OS === 'android' && (SERVER_IP as string) === 'localhost' 
   ? "http://10.0.2.2:8000" 
   : `http://${SERVER_IP}:8000`;
@@ -219,7 +219,7 @@ export default function AlertScreen({
       const response = await fetch(`${API_BASE_URL}/api/alerts`);
       if (response.ok) {
         const data = await response.json();
-        if (Array.isArray(data) && data.length > 0) {
+        if (Array.isArray(data)) {
           const formattedAlerts: SystemAlert[] = data.map((alt: any) => ({
             id: String(alt.id || alt._id),
             deviceId: alt.device_id || alt.deviceId,
@@ -244,8 +244,9 @@ export default function AlertScreen({
   }, [onAlertsChange]);
 
   useEffect(() => {
-    if (alerts && alerts.length > 0) {
+    if (alerts !== undefined) {
       setAlertList(alerts);
+      setIsLoading(false);
     } else {
       setIsLoading(true);
       fetchAlertsFromBackend();
@@ -261,21 +262,34 @@ export default function AlertScreen({
     const targetAlert = alertList.find((a) => a.id === id);
     if (!targetAlert) return;
 
-    const newResolvedState = !targetAlert.isResolved;
+    const previousState = targetAlert.isResolved;
+    const newResolvedState = !previousState;
+
+    // Apply optimistic update
     const updated = alertList.map((item) =>
       item.id === id ? { ...item, isResolved: newResolvedState } : item
     );
     updateAlerts(updated);
 
-    // Sync resolution status with backend
+    // Sync resolution status with backend with automatic rollback on error
     try {
-      await fetch(`${API_BASE_URL}/api/alerts/${id}/resolve`, {
+      const response = await fetch(`${API_BASE_URL}/api/alerts/${id}/resolve`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ is_resolved: newResolvedState }),
       });
+
+      if (!response.ok) {
+        throw new Error(`Server returned HTTP ${response.status}`);
+      }
     } catch (err) {
-      console.warn(`Failed to sync resolve status for alert ${id}:`, err);
+      console.warn(`Failed to sync resolve status for alert ${id}, rolling back:`, err);
+      
+      // Revert state back to original
+      const rolledBack = alertList.map((item) =>
+        item.id === id ? { ...item, isResolved: previousState } : item
+      );
+      updateAlerts(rolledBack);
     }
   };
 

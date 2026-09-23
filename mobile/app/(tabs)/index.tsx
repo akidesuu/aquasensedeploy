@@ -34,10 +34,7 @@ import ComponentsScreen, { FloaterDevice } from './ComponentsScreen';
 
 const { width } = Dimensions.get('window');
 
-const SERVER_IP: string = "192.168.18.21";
-const API_BASE_URL = Platform.OS === 'android' && (SERVER_IP as string) === 'localhost' 
-  ? "http://10.0.2.2:8000" 
-  : `http://${SERVER_IP}:8000`;
+const API_BASE_URL = 'https://aquasense-backend-osmi.onrender.com';
 
 export default function MobileDashboard() {
   const router = useRouter(); 

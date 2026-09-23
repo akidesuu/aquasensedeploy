@@ -22,7 +22,7 @@ import {
 import { useAuth } from '../_layout';
 
 interface ProfileScreenProps {
-  onLogout: () => void;
+  onLogout?: () => void;
 }
 
 export default function ProfileScreen({ onLogout }: ProfileScreenProps) {
@@ -34,7 +34,11 @@ export default function ProfileScreen({ onLogout }: ProfileScreenProps) {
   const handleLogoutPress = () => {
     Alert.alert('Sign Out', 'Are you sure you want to log out of AquaSense?', [
       { text: 'Cancel', style: 'cancel' },
-      { text: 'Log Out', style: 'destructive', onPress: onLogout },
+      { 
+        text: 'Log Out', 
+        style: 'destructive', 
+        onPress: () => onLogout?.() 
+      },
     ]);
   };
 

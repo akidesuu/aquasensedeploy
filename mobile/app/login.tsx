@@ -16,8 +16,7 @@ import {
 import { useRouter } from 'expo-router';
 import { useAuth } from "./_layout";
 
-const YOUR_COMPUTER_IP = '192.168.1.35'; 
-const FASTAPI_URL = `http://${YOUR_COMPUTER_IP}:8000`;
+const FASTAPI_URL = 'https://aquasense-backend-osmi.onrender.com';
 
 export default function LoginScreen() {
   const router = useRouter();
@@ -75,7 +74,7 @@ export default function LoginScreen() {
       console.error('Mobile Auth Network Error:', error);
       Alert.alert(
         'Connection Error', 
-        'Unable to reach the AquaSense backend server. Please verify network connectivity and host IP.'
+        'Unable to reach the AquaSense backend server. Please verify network connectivity.'
       );
     } finally {
       setLoading(false);
