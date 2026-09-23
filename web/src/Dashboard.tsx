@@ -24,8 +24,11 @@ import {
   Loader2
 } from 'lucide-react';
 
-const LOCAL_IP = '192.168.18.21';
-const FASTAPI_URL = import.meta.env?.VITE_API_URL || `http://${LOCAL_IP}:8000`;
+// Read API URL from environment variable, falling back to live Render backend
+const FASTAPI_URL =
+  import.meta.env.VITE_API_BASE_URL ||
+  import.meta.env.VITE_API_URL ||
+  'https://aquasense-backend-osmi.onrender.com';
 
 interface PredictionData {
   predicted_do: number | string;
@@ -596,48 +599,51 @@ export default function Dashboard({ onLogout }: DashboardProps) {
   );
 }
 
-const styles = {
-  appContainer: { display: 'flex', minHeight: '100vh', width: '100vw', backgroundColor: '#f8fafc', overflowX: 'hidden' as const, boxSizing: 'border-box' as const },
-  workspaceBody: { flex: 1, marginLeft: '260px', width: 'calc(100vw - 260px)', minHeight: '100vh', overflowY: 'auto' as const, padding: '24px', display: 'flex', flexDirection: 'column' as const, gap: '24px', color: '#1e293b', fontFamily: 'sans-serif', boxSizing: 'border-box' as const },
+const styles: Record<string, React.CSSProperties> = {
+  appContainer: { display: 'flex', minHeight: '100vh', width: '100vw', backgroundColor: '#f8fafc', overflowX: 'hidden', boxSizing: 'border-box' },
+  workspaceBody: { flex: 1, marginLeft: '260px', width: 'calc(100vw - 260px)', minHeight: '100vh', overflowY: 'auto', padding: '24px', display: 'flex', flexDirection: 'column', gap: '24px', color: '#1e293b', fontFamily: 'sans-serif', boxSizing: 'border-box' },
+  centerStage: { display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', height: '100vh', width: '100vw', backgroundColor: '#f8fafc', fontFamily: 'sans-serif' },
+  spinner: { width: '40px', height: '40px', border: '4px solid #e2e8f0', borderTop: '4px solid #0284c7', borderRadius: '50%', animation: 'spin 1s linear infinite' },
+  loadingText: { marginTop: '16px', fontSize: '14px', color: '#64748b', fontWeight: '600' },
   warningBanner: { display: 'flex', alignItems: 'center', backgroundColor: '#fee2e2', border: '1px solid #ef4444', color: '#b91c1c', padding: '12px 18px', borderRadius: '10px' },
-  kpiContainerRow: { display: 'flex', gap: '16px', width: '100%', boxSizing: 'border-box' as const },
-  kpiCard: { flex: 1, minWidth: '0', backgroundColor: '#ffffff', padding: '20px', borderRadius: '16px', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05), 0 2px 4px -1px rgba(0,0,0,0.03)', boxSizing: 'border-box' as const },
+  kpiContainerRow: { display: 'flex', gap: '16px', width: '100%', boxSizing: 'border-box' },
+  kpiCard: { flex: 1, minWidth: '0', backgroundColor: '#ffffff', padding: '20px', borderRadius: '16px', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05), 0 2px 4px -1px rgba(0,0,0,0.03)', boxSizing: 'border-box' },
   cardHeaderGlow: { display: 'flex', alignItems: 'center', marginBottom: '12px' },
   kpiTitle: { margin: 0, fontSize: '12px', color: '#64748b', fontWeight: '600' },
   kpiValue: { margin: 0, fontSize: '30px', fontWeight: '800' },
   unitText: { fontSize: '14px', color: '#64748b' },
   pulseDot: { width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#22c55e', marginRight: '8px' },
-  splitGridDashboard: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px', width: '100%', boxSizing: 'border-box' as const },
-  panelBox: { backgroundColor: '#ffffff', borderRadius: '16px', padding: '24px', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05), 0 2px 4px -1px rgba(0,0,0,0.03)', minWidth: '0', boxSizing: 'border-box' as const },
+  splitGridDashboard: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px', width: '100%', boxSizing: 'border-box' },
+  panelBox: { backgroundColor: '#ffffff', borderRadius: '16px', padding: '24px', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05), 0 2px 4px -1px rgba(0,0,0,0.03)', minWidth: '0', boxSizing: 'border-box' },
   panelHeaderRow: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' },
   panelBoxTitle: { margin: '0 0 24px 0', fontSize: '16px', fontWeight: '700', color: '#0f172a' },
   cryptoBadge: { display: 'flex', alignItems: 'center', backgroundColor: 'rgba(16,185,129,0.1)', color: '#059669', padding: '4px 10px', borderRadius: '20px', fontSize: '12px', fontWeight: '600' },
-  mapCanvas: { height: '260px', backgroundColor: '#f8fafc', borderRadius: '12px', position: 'relative' as const, overflow: 'hidden' },
+  mapCanvas: { height: '260px', backgroundColor: '#f8fafc', borderRadius: '12px', position: 'relative', overflow: 'hidden' },
   emptyState: { display: 'flex', height: '100%', alignItems: 'center', justifyContent: 'center', color: '#94a3b8', fontSize: '13px' },
-  radarRing1: { position: 'absolute' as const, width: '120px', height: '120px', borderRadius: '50%', border: '1px dashed #cbd5e1', top: '50%', left: '50%', transform: 'translate(-50%, -50%)' },
-  radarRing2: { position: 'absolute' as const, width: '220px', height: '220px', borderRadius: '50%', border: '1px solid #e2e8f0', top: '50%', left: '50%', transform: 'translate(-50%, -50%)' },
-  floaterInteractiveBubble: { position: 'absolute' as const, background: 'transparent', border: 'none', cursor: 'pointer', display: 'flex', flexDirection: 'column' as const, alignItems: 'center', gap: '6px' },
+  radarRing1: { position: 'absolute', width: '120px', height: '120px', borderRadius: '50%', border: '1px dashed #cbd5e1', top: '50%', left: '50%', transform: 'translate(-50%, -50%)' },
+  radarRing2: { position: 'absolute', width: '220px', height: '220px', borderRadius: '50%', border: '1px solid #e2e8f0', top: '50%', left: '50%', transform: 'translate(-50%, -50%)' },
+  floaterInteractiveBubble: { position: 'absolute', background: 'transparent', border: 'none', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px' },
   colorCircleNode: { width: '38px', height: '38px', borderRadius: '50%', border: '2px solid', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#ffffff' },
   innerCoreRadarDot: { width: '10px', height: '10px', borderRadius: '50%' },
   bubbleTextLabel: { fontSize: '11px', color: '#475569', fontWeight: '600' },
-  chartMockCanvas: { height: '260px', backgroundColor: '#0b1120', borderRadius: '12px', position: 'relative' as const, overflow: 'hidden' },
-  svgGraphLine: { width: '100%', height: '100%', position: 'absolute' as const, top: 0, left: 0, zIndex: 2 },
-  chartWatermarkGrid: { position: 'absolute' as const, top: 0, left: 0, right: 0, bottom: 0, backgroundImage: 'linear-gradient(rgba(30,41,59,0.5) 1px, transparent 1px), linear-gradient(90deg, rgba(30,41,59,0.5) 1px, transparent 1px)', backgroundSize: '16px 16px', zIndex: 1 },
-  chartWatermarkGridModal: { position: 'absolute' as const, top: 0, left: 0, right: 0, bottom: 0, backgroundImage: 'linear-gradient(rgba(30,41,59,0.7) 1px, transparent 1px), linear-gradient(90deg, rgba(30,41,59,0.7) 1px, transparent 1px)', backgroundSize: '14px 14px', zIndex: 1 },
+  chartMockCanvas: { height: '260px', backgroundColor: '#0b1120', borderRadius: '12px', position: 'relative', overflow: 'hidden' },
+  svgGraphLine: { width: '100%', height: '100%', position: 'absolute', top: 0, left: 0, zIndex: 2 },
+  chartWatermarkGrid: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundImage: 'linear-gradient(rgba(30,41,59,0.5) 1px, transparent 1px), linear-gradient(90deg, rgba(30,41,59,0.5) 1px, transparent 1px)', backgroundSize: '16px 16px', zIndex: 1 },
+  chartWatermarkGridModal: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundImage: 'linear-gradient(rgba(30,41,59,0.7) 1px, transparent 1px), linear-gradient(90deg, rgba(30,41,59,0.7) 1px, transparent 1px)', backgroundSize: '14px 14px', zIndex: 1 },
   flexHeader: { display: 'flex', alignItems: 'center', marginBottom: '16px', gap: '8px' },
   flexGroup8: { display: 'flex', alignItems: 'center', gap: '8px' },
-  logTerminalContainer: { backgroundColor: '#0b1120', borderRadius: '12px', padding: '16px', height: '140px', overflowY: 'auto' as const, fontFamily: 'monospace', fontSize: '12px', display: 'flex', flexDirection: 'column' as const, gap: '8px' },
+  logTerminalContainer: { backgroundColor: '#0b1120', borderRadius: '12px', padding: '16px', height: '140px', overflowY: 'auto', fontFamily: 'monospace', fontSize: '12px', display: 'flex', flexDirection: 'column', gap: '8px' },
   logLineItem: { display: 'flex', gap: '8px', lineHeight: '1.4' },
   logTimestamp: { color: '#64748b' },
   logSource: { fontWeight: 'bold' },
   logMessage: { color: '#e2e8f0' },
-  quickActionsGrid: { display: 'flex', flexDirection: 'column' as const, gap: '12px', height: '140px', justifyContent: 'center' },
+  quickActionsGrid: { display: 'flex', flexDirection: 'column', gap: '12px', height: '140px', justifyContent: 'center' },
   actionCard: { display: 'flex', alignItems: 'center', gap: '12px', backgroundColor: '#f8fafc', padding: '12px 16px', borderRadius: '12px', border: '1px solid #e2e8f0' },
   actionCardTitle: { margin: 0, fontSize: '14px', color: '#0f172a', fontWeight: '600' },
   actionCardDesc: { margin: 0, fontSize: '11px', color: '#64748b' },
   actionInteractiveBtn: { display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', backgroundColor: '#ffffff', border: '1px solid #cbd5e1', padding: '12px', borderRadius: '12px', cursor: 'pointer', outline: 'none' },
   actionInteractiveLogoutBtn: { display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', backgroundColor: '#fef2f2', border: '1px solid #fee2e2', padding: '12px', borderRadius: '12px', cursor: 'pointer', outline: 'none' },
-  modalOverlayMask: { position: 'fixed' as const, inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '20px' },
+  modalOverlayMask: { position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '20px' },
   modalBodyWindow: { width: '100%', maxWidth: '800px', backgroundColor: '#ffffff', borderRadius: '16px', overflow: 'hidden' },
   modalSplitGrid: { display: 'grid', gridTemplateColumns: '1fr 1fr' },
   modalMetaSection: { padding: '32px', backgroundColor: '#ffffff' },
@@ -650,13 +656,10 @@ const styles = {
   predictedBrickLabel: { margin: 0, fontSize: '13px', color: '#065f46', fontWeight: '700' },
   predictedBrickSub: { fontSize: '10px', color: '#047857', display: 'block' },
   predictedBrickValue: { fontSize: '20px', fontWeight: '800', color: '#065f46', display: 'flex', alignItems: 'center' },
-  modalGridBrick: { backgroundColor: '#f8fafc', padding: '14px 16px', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' },
-  brickLabelText: { margin: 0, fontSize: '13px', color: '#64748b', fontWeight: '600' },
-  brickValueText: { fontSize: '18px', fontWeight: '700' },
-  modalChartPane: { padding: '24px', backgroundColor: '#070c18', display: 'flex', flexDirection: 'column' as const, justifyContent: 'center', alignItems: 'center' },
-  modalChartWrapper: { width: '100%', height: '220px', position: 'relative' as const, backgroundColor: '#070c18', borderRadius: '8px', overflow: 'hidden' },
-  modalChartFooterLabel: { marginTop: '12px', color: '#64748b', textAlign: 'center' as const, fontSize: '11px', letterSpacing: '0.5px' },
-  centerStage: { display: 'flex', flexDirection: 'column' as const, justifyContent: 'center', alignItems: 'center', minHeight: '100vh', backgroundColor: '#f5f7fb' },
-  loadingText: { marginTop: '20px', color: '#0284c7' },
-  spinner: { width: '40px', height: '40px', border: '3px solid #dbeafe', borderTop: '3px solid #0284c7', borderRadius: '50%' }
+  modalGridBrick: { backgroundColor: '#f8fafc', padding: '14px 16px', borderRadius: '12px', border: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'space-between' },
+  brickLabelText: { margin: 0, fontSize: '13px', color: '#475569', fontWeight: '600' },
+  brickValueText: { fontSize: '16px', fontWeight: '700' },
+  modalChartPane: { backgroundColor: '#0b1120', padding: '32px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' },
+  modalChartWrapper: { height: '220px', width: '100%', position: 'relative', overflow: 'hidden', borderRadius: '12px' },
+  modalChartFooterLabel: { color: '#64748b', fontSize: '11px', textAlign: 'center', marginTop: '16px', letterSpacing: '0.05em' }
 };

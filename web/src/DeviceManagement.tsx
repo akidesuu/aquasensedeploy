@@ -49,6 +49,14 @@ interface DeviceManagementProps {
   onRebootDevice?: (id: string) => void;
 }
 
+// Read API URL dynamically from environment variables, falling back to live Render backend
+const BASE_URL =
+  import.meta.env.VITE_API_BASE_URL ||
+  import.meta.env.VITE_API_URL ||
+  'https://aquasense-backend-osmi.onrender.com';
+
+const API_BASE_URL = BASE_URL.replace(/\/$/, '');
+
 export default function DeviceManagement({
   devices: propDevices,
   accounts: propAccounts,
@@ -81,7 +89,7 @@ export default function DeviceManagement({
   // Fetch accounts from FastAPI if not provided via props
   useEffect(() => {
     if (!propAccounts || propAccounts.length === 0) {
-      fetch('http://localhost:8000/api/accounts')
+      fetch(`${API_BASE_URL}/api/accounts`)
         .then((res) => res.json())
         .then((data) => {
           if (Array.isArray(data)) {
@@ -95,7 +103,7 @@ export default function DeviceManagement({
   // Fetch devices from FastAPI on mount
   const loadDevicesFromBackend = async () => {
     try {
-      const response = await fetch('http://localhost:8000/api/devices');
+      const response = await fetch(`${API_BASE_URL}/api/devices`);
       if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
       
       const data = await response.json();
@@ -180,7 +188,7 @@ export default function DeviceManagement({
     if (!window.confirm('Are you sure you want to remove this node?')) return;
 
     try {
-      const response = await fetch(`http://localhost:8000/api/devices/${id}`, {
+      const response = await fetch(`${API_BASE_URL}/api/devices/${id}`, {
         method: 'DELETE'
       });
 
@@ -229,7 +237,7 @@ export default function DeviceManagement({
 
     try {
       if (editingDeviceId) {
-        const response = await fetch(`http://localhost:8000/api/devices/${editingDeviceId}`, {
+        const response = await fetch(`${API_BASE_URL}/api/devices/${editingDeviceId}`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: backendBody
@@ -255,7 +263,7 @@ export default function DeviceManagement({
           return;
         }
 
-        const response = await fetch('http://localhost:8000/api/devices', {
+        const response = await fetch(`${API_BASE_URL}/api/devices`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: backendBody

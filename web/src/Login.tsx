@@ -6,6 +6,11 @@ interface LoginProps {
   onLoginSuccess: (username: string) => void;
 }
 
+// Read base URL from environment variable, fallback to live Render backend URL
+const API_BASE_URL =
+  import.meta.env.VITE_API_BASE_URL ||
+  'https://aquasense-backend-osmi.onrender.com';
+
 export default function Login({ onLoginSuccess }: LoginProps) {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -18,7 +23,7 @@ export default function Login({ onLoginSuccess }: LoginProps) {
     setIsLoading(true);
 
     try {
-      const response = await fetch('http://127.0.0.1:8000/auth/login', {
+      const response = await fetch(`${API_BASE_URL}/auth/login`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

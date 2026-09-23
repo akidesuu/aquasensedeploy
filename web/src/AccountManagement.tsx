@@ -60,7 +60,13 @@ interface AccountForm {
   status: AccountStatus;
 }
 
-const API_BASE_URL = 'http://localhost:8000/api/accounts';
+// Read API URL dynamically from environment variables, falling back to live Render backend
+const BASE_URL =
+  import.meta.env.VITE_API_BASE_URL ||
+  import.meta.env.VITE_API_URL ||
+  'https://aquasense-backend-osmi.onrender.com';
+
+const API_BASE_URL = `${BASE_URL.replace(/\/$/, '')}/api/accounts`;
 
 const EMPTY_FORM: AccountForm = {
   id: '',
