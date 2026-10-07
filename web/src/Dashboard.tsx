@@ -126,14 +126,21 @@ export default function Dashboard({ onLogout }: DashboardProps) {
     try {
       const [predRes, telemRes] = await Promise.all([
         axios.get<PredictionData>(`${FASTAPI_URL}/predict`),
-        axios.get<TelemetryRecord[] | TelemetryRecord>(`${FASTAPI_URL}/telemetry`)
+        axios.get<TelemetryRecord[] | TelemetryRecord>(`${FASTAPI_URL}/telemetry?limit=100`)
       ]);
 
       setError(null);
       setPrediction(predRes.data);
 
       const rawData = telemRes.data;
-      const dataArray: TelemetryRecord[] = Array.isArray(rawData) ? rawData : rawData ? [rawData] : [];
+      let dataArray: TelemetryRecord[] = Array.isArray(rawData) ? rawData : rawData ? [rawData] : [];
+
+      // Ensure array sorts with the absolute newest/latest records at index 0
+      dataArray.sort((a, b) => {
+        const timeA = new Date(a.created_at || a.timestamp || 0).getTime();
+        const timeB = new Date(b.created_at || b.timestamp || 0).getTime();
+        return timeB - timeA;
+      });
 
       setRawTelemetryList(dataArray);
 
@@ -364,7 +371,7 @@ export default function Dashboard({ onLogout }: DashboardProps) {
               <div style={styles.panelHeaderRow}>
                 <div style={styles.flexHeader}>
                   <Database size={18} color="#0284c7" />
-                  <h3 style={{ ...styles.panelBoxTitle, margin: 0 }}>Raw Telemetry Database Stream</h3>
+                  <h3 style={{ ...styles.panelBoxTitle, margin: 0 }}>Latest Raw Telemetry Database Stream</h3>
                   <span style={styles.recordBadge}>{rawTelemetryList.length} Records</span>
                 </div>
                 <button type="button" style={styles.refreshBtn} onClick={fetchCentralData}>
@@ -377,6 +384,7 @@ export default function Dashboard({ onLogout }: DashboardProps) {
                 <table style={styles.telemetryTable}>
                   <thead>
                     <tr>
+                      <th style={styles.tableTh}>Status / Rank</th>
                       <th style={styles.tableTh}>Device ID</th>
                       <th style={styles.tableTh}>pH Level</th>
                       <th style={styles.tableTh}>Temp (°C)</th>
@@ -387,15 +395,24 @@ export default function Dashboard({ onLogout }: DashboardProps) {
                   <tbody>
                     {rawTelemetryList.length === 0 ? (
                       <tr>
-                        <td colSpan={5} style={styles.emptyTd}>
+                        <td colSpan={6} style={styles.emptyTd}>
                           No raw telemetry records fetched from database.
                         </td>
                       </tr>
                     ) : (
                       rawTelemetryList.map((rec, index) => {
                         const timeStr = rec.created_at || rec.timestamp || 'N/A';
+                        const isLatest = index === 0;
+
                         return (
-                          <tr key={`${rec.device_id}-${index}`} style={styles.tableTr}>
+                          <tr key={`${rec.device_id}-${index}`} style={{ ...styles.tableTr, backgroundColor: isLatest ? 'rgba(2, 132, 199, 0.05)' : 'transparent' }}>
+                            <td style={styles.tableTdBold}>
+                              {isLatest ? (
+                                <span style={styles.latestBadge}>LATEST LOG</span>
+                              ) : (
+                                <span style={styles.indexBadge}>#{index + 1}</span>
+                              )}
+                            </td>
                             <td style={styles.tableTdBold}>{rec.device_id || 'N/A'}</td>
                             <td style={styles.tableTdPh}>{Number(rec.ph ?? 0).toFixed(2)}</td>
                             <td style={styles.tableTdTemp}>{Number(rec.temperature ?? 0).toFixed(1)}°C</td>
@@ -600,6 +617,8 @@ const styles: Record<string, React.CSSProperties> = {
   panelHeaderRow: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' },
   panelBoxTitle: { margin: 0, fontSize: '16px', fontWeight: '700', color: '#0f172a' },
   recordBadge: { backgroundColor: '#e0f2fe', color: '#0369a1', fontSize: '11px', fontWeight: '700', padding: '2px 8px', borderRadius: '12px', marginLeft: '8px' },
+  latestBadge: { backgroundColor: '#0284c7', color: '#ffffff', fontSize: '10px', fontWeight: '800', padding: '3px 8px', borderRadius: '10px', letterSpacing: '0.05em' },
+  indexBadge: { color: '#64748b', fontSize: '12px', fontWeight: '600' },
   refreshBtn: { display: 'flex', alignItems: 'center', gap: '6px', backgroundColor: '#f1f5f9', border: '1px solid #cbd5e1', padding: '6px 12px', borderRadius: '8px', cursor: 'pointer', fontSize: '12px', fontWeight: '600', color: '#334155' },
   cryptoBadge: { display: 'flex', alignItems: 'center', backgroundColor: 'rgba(16,185,129,0.1)', color: '#059669', padding: '4px 10px', borderRadius: '20px', fontSize: '12px', fontWeight: '600' },
   mapCanvas: { height: '260px', backgroundColor: '#f8fafc', borderRadius: '12px', position: 'relative', overflow: 'hidden' },
@@ -616,7 +635,7 @@ const styles: Record<string, React.CSSProperties> = {
   chartWatermarkGridModal: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundImage: `linear-gradient(rgba(30,41,59,0.7) 1px, transparent 1px), linear-gradient(90deg, rgba(30,41,59,0.7) 1px, transparent 1px)`, backgroundSize: '14px 14px', zIndex: 1 },
   flexHeader: { display: 'flex', alignItems: 'center', gap: '8px' },
   flexGroup8: { display: 'flex', alignItems: 'center', gap: '8px' },
-  tableScrollContainer: { maxHeight: '220px', overflowY: 'auto', borderRadius: '8px', border: '1px solid #e2e8f0' },
+  tableScrollContainer: { maxHeight: '280px', overflowY: 'auto', borderRadius: '8px', border: '1px solid #e2e8f0' },
   telemetryTable: { width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '13px' },
   tableTh: { padding: '10px 14px', backgroundColor: '#f1f5f9', color: '#475569', fontWeight: '700', borderBottom: '1px solid #cbd5e1', position: 'sticky', top: 0, zIndex: 5 },
   tableTr: { borderBottom: '1px solid #f1f5f9' },
