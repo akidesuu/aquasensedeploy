@@ -603,7 +603,8 @@ def get_telemetry(limit: int = Query(100, ge=1, le=1000)):
         raise HTTPException(status_code=500, detail="Database connection is unavailable.")
     
     try:
-        cursor = db['raw_telemetry'].find().sort("timestamp", -1).limit(limit)
+        # Sort by _id descending to strictly return the most recently inserted database records
+        cursor = db['raw_telemetry'].find().sort("_id", -1).limit(limit)
         telemetry_records = []
         for record in cursor:
             record["_id"] = str(record["_id"])
@@ -628,7 +629,7 @@ def get_latest_telemetry(device_id: Optional[str] = None):
                     detail=f"Device with ID '{device_id}' does not exist."
                 )
 
-        latest_record = db['raw_telemetry'].find_one(query, sort=[("timestamp", -1)])
+        latest_record = db['raw_telemetry'].find_one(query, sort=[("_id", -1)])
         
         if not latest_record:
             raise HTTPException(
@@ -650,7 +651,7 @@ def get_telemetry_history(limit: int = Query(50, ge=1, le=500), device_id: Optio
     
     try:
         query = {"device_id": device_id} if device_id else {}
-        cursor = db['raw_telemetry'].find(query).sort("timestamp", -1).limit(limit)
+        cursor = db['raw_telemetry'].find(query).sort("_id", -1).limit(limit)
         
         history = []
         for record in cursor:
@@ -687,7 +688,7 @@ def get_latest_prediction():
         raise HTTPException(status_code=500, detail="Database connection is unavailable.")
     
     try:
-        latest_record = db['prediction_logs'].find_one(sort=[("timestamp", -1)])
+        latest_record = db['prediction_logs'].find_one(sort=[("_id", -1)])
         
         if not latest_record:
             return {
