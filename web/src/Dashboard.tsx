@@ -14,17 +14,13 @@ import {
   Radio,
   Activity,
   Cpu,
-  Terminal,
-  ShieldCheck,
-  RefreshCw,
-  Sliders,
+  Database,
   TrendingUp,
-  LogOut,
   Sparkles,
-  Loader2
+  Loader2,
+  RefreshCw
 } from 'lucide-react';
 
-// Read API URL from environment variable, falling back to live Render backend
 const FASTAPI_URL =
   import.meta.env.VITE_API_BASE_URL ||
   import.meta.env.VITE_API_URL ||
@@ -44,15 +40,7 @@ interface TelemetryRecord {
   timestamp?: string;
 }
 
-interface LogEntry {
-  id: string;
-  timestamp: string;
-  source: string;
-  message: string;
-  type: 'info' | 'success' | 'warning';
-}
-
-interface AccountData {
+export interface AccountData {
   id?: string;
   name?: string;
   email: string;
@@ -88,16 +76,7 @@ export default function Dashboard({ onLogout }: DashboardProps) {
   const [modalHistory, setModalHistory] = useState<number[]>([]);
   const [trendHistory, setTrendHistory] = useState<number[]>([6.8, 7.0, 7.1, 6.9, 7.2, 7.4, 7.3]);
   const [floaters, setFloaters] = useState<FloaterNode[]>([]);
-  const [logs, setLogs] = useState<LogEntry[]>([
-    { id: '1', timestamp: new Date().toLocaleTimeString(), source: 'SYS', message: 'AquaSense continuous stream online.', type: 'info' }
-  ]);
-
-  const addLog = useCallback((source: string, message: string, type: LogEntry['type']) => {
-    setLogs((prev) => [
-      { id: String(Date.now()), timestamp: new Date().toLocaleTimeString(), source, message, type },
-      ...prev.slice(0, 4)
-    ]);
-  }, []);
+  const [rawTelemetryList, setRawTelemetryList] = useState<TelemetryRecord[]>([]);
 
   const normTab = activeTab.trim().toLowerCase().replace(/[_\s]+/g, '-');
   const isDeviceManagementTab = ['devices', 'device-management', 'devicemanagement'].includes(normTab);
@@ -128,8 +107,6 @@ export default function Dashboard({ onLogout }: DashboardProps) {
       if (!isNaN(numVal)) {
         setModalHistory((prev) => [...prev.slice(-9), Number(numVal.toFixed(2))]);
       }
-
-      addLog('ML_MODEL', `Inference calculated for node ${node.device_id}.`, 'success');
     } catch (err) {
       console.warn('Real-time node prediction failed, falling back:', err);
       if (prediction?.predicted_do !== undefined) {
@@ -143,7 +120,7 @@ export default function Dashboard({ onLogout }: DashboardProps) {
     } finally {
       setNodePredictLoading(false);
     }
-  }, [addLog, prediction?.predicted_do]);
+  }, [prediction?.predicted_do]);
 
   const fetchCentralData = useCallback(async () => {
     try {
@@ -156,7 +133,9 @@ export default function Dashboard({ onLogout }: DashboardProps) {
       setPrediction(predRes.data);
 
       const rawData = telemRes.data;
-      const dataArray = Array.isArray(rawData) ? rawData : rawData ? [rawData] : [];
+      const dataArray: TelemetryRecord[] = Array.isArray(rawData) ? rawData : rawData ? [rawData] : [];
+
+      setRawTelemetryList(dataArray);
 
       if (dataArray.length > 0) {
         const deviceMap = new Map<string, TelemetryRecord>();
@@ -195,7 +174,6 @@ export default function Dashboard({ onLogout }: DashboardProps) {
           : updatedNodes[0]?.metrics.ph ?? 7.0;
 
         setTrendHistory((prev) => [...prev.slice(-19), Number(latestVal.toFixed(2))]);
-        addLog('ESP32/DB', `Stream synced (${updatedNodes.length} active nodes).`, 'success');
       }
     } catch (err) {
       console.error('Backend streaming error:', err);
@@ -203,7 +181,7 @@ export default function Dashboard({ onLogout }: DashboardProps) {
     } finally {
       setLoading(false);
     }
-  }, [addLog]);
+  }, []);
 
   const handleSelectFloater = (node: FloaterNode) => {
     setSelectedFloater(node);
@@ -234,16 +212,14 @@ export default function Dashboard({ onLogout }: DashboardProps) {
       metrics: { ph: 7.0, temperature: 25.0, turbidity: 5.0 }
     };
     setFloaters((prev) => [...prev, newNode]);
-    addLog('SYS', `Device ${newDev.id} registered.`, 'info');
   };
 
   const handleRemoveDevice = (id: string) => {
     setFloaters((prev) => prev.filter((f) => f.id !== id));
-    addLog('SYS', `Device ${id} removed.`, 'warning');
   };
 
   const handleRebootDevice = (id: string) => {
-    addLog('ESP32', `Reboot signal dispatched to node ${id}.`, 'info');
+    console.log(`Reboot signal dispatched to node ${id}`);
   };
 
   if (loading && !prediction) {
@@ -383,49 +359,54 @@ export default function Dashboard({ onLogout }: DashboardProps) {
               </div>
             </div>
 
-            <div style={styles.splitGridDashboard}>
-              <div style={styles.panelBox}>
+            {/* RAW TELEMETRY DATABASE STREAM TABLE */}
+            <div style={styles.panelBoxFullWidth}>
+              <div style={styles.panelHeaderRow}>
                 <div style={styles.flexHeader}>
-                  <Terminal size={18} color="#475569" />
-                  <h3 style={{ ...styles.panelBoxTitle, margin: 0 }}>System Logs & Stream Terminal</h3>
+                  <Database size={18} color="#0284c7" />
+                  <h3 style={{ ...styles.panelBoxTitle, margin: 0 }}>Raw Telemetry Database Stream</h3>
+                  <span style={styles.recordBadge}>{rawTelemetryList.length} Records</span>
                 </div>
-                <div style={styles.logTerminalContainer}>
-                  {logs.map((log) => (
-                    <div key={log.id} style={styles.logLineItem}>
-                      <span style={styles.logTimestamp}>[{log.timestamp}]</span>
-                      <span style={{ ...styles.logSource, color: log.type === 'warning' ? '#b91c1c' : log.type === 'success' ? '#16a34a' : '#0284c7' }}>
-                        {log.source}:
-                      </span>
-                      <span style={styles.logMessage}>{log.message}</span>
-                    </div>
-                  ))}
-                </div>
+                <button type="button" style={styles.refreshBtn} onClick={fetchCentralData}>
+                  <RefreshCw size={14} color="#0284c7" />
+                  <span>Refresh DB</span>
+                </button>
               </div>
 
-              <div style={styles.panelBox}>
-                <div style={styles.flexHeader}>
-                  <Sliders size={18} color="#475569" />
-                  <h3 style={{ ...styles.panelBoxTitle, margin: 0 }}>Control Plane</h3>
-                </div>
-                <div style={styles.quickActionsGrid}>
-                  <div style={styles.actionCard}>
-                    <ShieldCheck size={22} color="#16a34a" />
-                    <div>
-                      <h4 style={styles.actionCardTitle}>Continuous Polling Active</h4>
-                      <p style={styles.actionCardDesc}>Automated 3s backend telemetry fetching</p>
-                    </div>
-                  </div>
-                  <div style={{ display: 'flex', gap: '12px' }}>
-                    <button type="button" style={{ ...styles.actionInteractiveBtn, flex: 1 }} onClick={fetchCentralData}>
-                      <RefreshCw size={16} color="#0284c7" />
-                      <span style={{ fontWeight: '600', fontSize: '13px', color: '#0f172a' }}>Sync Stream</span>
-                    </button>
-                    <button type="button" style={{ ...styles.actionInteractiveLogoutBtn, flex: 1 }} onClick={onLogout}>
-                      <LogOut size={16} color="#dc2626" />
-                      <span style={{ fontWeight: '600', fontSize: '13px', color: '#991b1b' }}>Logout</span>
-                    </button>
-                  </div>
-                </div>
+              <div style={styles.tableScrollContainer}>
+                <table style={styles.telemetryTable}>
+                  <thead>
+                    <tr>
+                      <th style={styles.tableTh}>Device ID</th>
+                      <th style={styles.tableTh}>pH Level</th>
+                      <th style={styles.tableTh}>Temp (°C)</th>
+                      <th style={styles.tableTh}>Turbidity (NTU)</th>
+                      <th style={styles.tableTh}>Timestamp</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rawTelemetryList.length === 0 ? (
+                      <tr>
+                        <td colSpan={5} style={styles.emptyTd}>
+                          No raw telemetry records fetched from database.
+                        </td>
+                      </tr>
+                    ) : (
+                      rawTelemetryList.map((rec, index) => {
+                        const timeStr = rec.created_at || rec.timestamp || 'N/A';
+                        return (
+                          <tr key={`${rec.device_id}-${index}`} style={styles.tableTr}>
+                            <td style={styles.tableTdBold}>{rec.device_id || 'N/A'}</td>
+                            <td style={styles.tableTdPh}>{Number(rec.ph ?? 0).toFixed(2)}</td>
+                            <td style={styles.tableTdTemp}>{Number(rec.temperature ?? 0).toFixed(1)}°C</td>
+                            <td style={styles.tableTdTurb}>{Number(rec.turbidity ?? 0).toFixed(1)} NTU</td>
+                            <td style={styles.tableTdTime}>{timeStr}</td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
               </div>
             </div>
           </>
@@ -442,9 +423,9 @@ export default function Dashboard({ onLogout }: DashboardProps) {
 
         {isAccountManagementTab && (
           <AccountManagement
-            onAddAccount={(acc: AccountData) => addLog('SYS', `Account ${acc.email} registered.`, 'success')}
-            onEditAccount={(_id: string, acc: AccountData) => addLog('SYS', `Account ${acc.email} updated.`, 'info')}
-            onDeleteAccount={(id: string) => addLog('SYS', `Account ${id} deleted.`, 'warning')}
+            onAddAccount={(_acc: AccountData) => {}}
+            onEditAccount={(_id: string, _acc: AccountData) => {}}
+            onDeleteAccount={(_id: string) => {}}
           />
         )}
 
@@ -615,8 +596,11 @@ const styles: Record<string, React.CSSProperties> = {
   pulseDot: { width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#22c55e', marginRight: '8px' },
   splitGridDashboard: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px', width: '100%', boxSizing: 'border-box' },
   panelBox: { backgroundColor: '#ffffff', borderRadius: '16px', padding: '24px', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05), 0 2px 4px -1px rgba(0,0,0,0.03)', minWidth: '0', boxSizing: 'border-box' },
-  panelHeaderRow: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' },
-  panelBoxTitle: { margin: '0 0 24px 0', fontSize: '16px', fontWeight: '700', color: '#0f172a' },
+  panelBoxFullWidth: { backgroundColor: '#ffffff', borderRadius: '16px', padding: '24px', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05), 0 2px 4px -1px rgba(0,0,0,0.03)', width: '100%', boxSizing: 'border-box' },
+  panelHeaderRow: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' },
+  panelBoxTitle: { margin: 0, fontSize: '16px', fontWeight: '700', color: '#0f172a' },
+  recordBadge: { backgroundColor: '#e0f2fe', color: '#0369a1', fontSize: '11px', fontWeight: '700', padding: '2px 8px', borderRadius: '12px', marginLeft: '8px' },
+  refreshBtn: { display: 'flex', alignItems: 'center', gap: '6px', backgroundColor: '#f1f5f9', border: '1px solid #cbd5e1', padding: '6px 12px', borderRadius: '8px', cursor: 'pointer', fontSize: '12px', fontWeight: '600', color: '#334155' },
   cryptoBadge: { display: 'flex', alignItems: 'center', backgroundColor: 'rgba(16,185,129,0.1)', color: '#059669', padding: '4px 10px', borderRadius: '20px', fontSize: '12px', fontWeight: '600' },
   mapCanvas: { height: '260px', backgroundColor: '#f8fafc', borderRadius: '12px', position: 'relative', overflow: 'hidden' },
   emptyState: { display: 'flex', height: '100%', alignItems: 'center', justifyContent: 'center', color: '#94a3b8', fontSize: '13px' },
@@ -628,21 +612,20 @@ const styles: Record<string, React.CSSProperties> = {
   bubbleTextLabel: { fontSize: '11px', color: '#475569', fontWeight: '600' },
   chartMockCanvas: { height: '260px', backgroundColor: '#0b1120', borderRadius: '12px', position: 'relative', overflow: 'hidden' },
   svgGraphLine: { width: '100%', height: '100%', position: 'absolute', top: 0, left: 0, zIndex: 2 },
-  chartWatermarkGrid: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundImage: 'linear-gradient(rgba(30,41,59,0.5) 1px, transparent 1px), linear-gradient(90deg, rgba(30,41,59,0.5) 1px, transparent 1px)', backgroundSize: '16px 16px', zIndex: 1 },
-  chartWatermarkGridModal: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundImage: 'linear-gradient(rgba(30,41,59,0.7) 1px, transparent 1px), linear-gradient(90deg, rgba(30,41,59,0.7) 1px, transparent 1px)', backgroundSize: '14px 14px', zIndex: 1 },
-  flexHeader: { display: 'flex', alignItems: 'center', marginBottom: '16px', gap: '8px' },
+  chartWatermarkGrid: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundImage: `linear-gradient(rgba(30,41,59,0.5) 1px, transparent 1px), linear-gradient(90deg, rgba(30,41,59,0.5) 1px, transparent 1px)`, backgroundSize: '16px 16px', zIndex: 1 },
+  chartWatermarkGridModal: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundImage: `linear-gradient(rgba(30,41,59,0.7) 1px, transparent 1px), linear-gradient(90deg, rgba(30,41,59,0.7) 1px, transparent 1px)`, backgroundSize: '14px 14px', zIndex: 1 },
+  flexHeader: { display: 'flex', alignItems: 'center', gap: '8px' },
   flexGroup8: { display: 'flex', alignItems: 'center', gap: '8px' },
-  logTerminalContainer: { backgroundColor: '#0b1120', borderRadius: '12px', padding: '16px', height: '140px', overflowY: 'auto', fontFamily: 'monospace', fontSize: '12px', display: 'flex', flexDirection: 'column', gap: '8px' },
-  logLineItem: { display: 'flex', gap: '8px', lineHeight: '1.4' },
-  logTimestamp: { color: '#64748b' },
-  logSource: { fontWeight: 'bold' },
-  logMessage: { color: '#e2e8f0' },
-  quickActionsGrid: { display: 'flex', flexDirection: 'column', gap: '12px', height: '140px', justifyContent: 'center' },
-  actionCard: { display: 'flex', alignItems: 'center', gap: '12px', backgroundColor: '#f8fafc', padding: '12px 16px', borderRadius: '12px', border: '1px solid #e2e8f0' },
-  actionCardTitle: { margin: 0, fontSize: '14px', color: '#0f172a', fontWeight: '600' },
-  actionCardDesc: { margin: 0, fontSize: '11px', color: '#64748b' },
-  actionInteractiveBtn: { display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', backgroundColor: '#ffffff', border: '1px solid #cbd5e1', padding: '12px', borderRadius: '12px', cursor: 'pointer', outline: 'none' },
-  actionInteractiveLogoutBtn: { display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', backgroundColor: '#fef2f2', border: '1px solid #fee2e2', padding: '12px', borderRadius: '12px', cursor: 'pointer', outline: 'none' },
+  tableScrollContainer: { maxHeight: '220px', overflowY: 'auto', borderRadius: '8px', border: '1px solid #e2e8f0' },
+  telemetryTable: { width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '13px' },
+  tableTh: { padding: '10px 14px', backgroundColor: '#f1f5f9', color: '#475569', fontWeight: '700', borderBottom: '1px solid #cbd5e1', position: 'sticky', top: 0, zIndex: 5 },
+  tableTr: { borderBottom: '1px solid #f1f5f9' },
+  tableTdBold: { padding: '10px 14px', fontWeight: '700', color: '#0f172a' },
+  tableTdPh: { padding: '10px 14px', color: '#16a34a', fontWeight: '600' },
+  tableTdTemp: { padding: '10px 14px', color: '#0284c7', fontWeight: '600' },
+  tableTdTurb: { padding: '10px 14px', color: '#e11d48', fontWeight: '600' },
+  tableTdTime: { padding: '10px 14px', color: '#64748b', fontSize: '12px' },
+  emptyTd: { padding: '20px', textAlign: 'center', color: '#94a3b8' },
   modalOverlayMask: { position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '20px' },
   modalBodyWindow: { width: '100%', maxWidth: '800px', backgroundColor: '#ffffff', borderRadius: '16px', overflow: 'hidden' },
   modalSplitGrid: { display: 'grid', gridTemplateColumns: '1fr 1fr' },
