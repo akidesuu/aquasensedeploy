@@ -598,12 +598,12 @@ async def receive_telemetry(payload: TelemetryPayload):
     }
 
 @app.get("/telemetry")
-def get_telemetry():
+def get_telemetry(limit: int = Query(100, ge=1, le=1000)):
     if db is None:
         raise HTTPException(status_code=500, detail="Database connection is unavailable.")
     
     try:
-        cursor = db['raw_telemetry'].find().sort("timestamp", -1).limit(10)
+        cursor = db['raw_telemetry'].find().sort("timestamp", -1).limit(limit)
         telemetry_records = []
         for record in cursor:
             record["_id"] = str(record["_id"])
