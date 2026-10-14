@@ -26,6 +26,8 @@ const FASTAPI_URL =
   import.meta.env.VITE_API_URL ||
   'https://aquasense-backend-osmi.onrender.com';
 
+const STALE_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes threshold
+
 interface PredictionData {
   predicted_do: number | string;
   status?: string;
@@ -146,41 +148,54 @@ export default function Dashboard({ onLogout }: DashboardProps) {
 
       if (dataArray.length > 0) {
         const deviceMap = new Map<string, TelemetryRecord>();
+        
+        // Pick latest record per unique device
         dataArray.forEach((record) => {
           const id = record.device_id || 'UNKNOWN_NODE';
           if (!deviceMap.has(id)) deviceMap.set(id, record);
         });
 
-        const updatedNodes: FloaterNode[] = Array.from(deviceMap.values()).map((record, index) => {
-          const devId = String(record.device_id || `ESP32-NODE-${index + 1}`);
-          return {
-            id: devId,
-            device_id: devId,
-            name: `Node ${devId}`,
-            location: 'Active Field Node',
-            color: COLORS[index % COLORS.length],
-            status: 'Online',
-            metrics: {
-              ph: Number(record.ph ?? 0),
-              temperature: Number(record.temperature ?? 0),
-              turbidity: Number(record.turbidity ?? 0)
-            }
-          };
+        const nowMs = Date.now();
+        const activeNodes: FloaterNode[] = [];
+
+        Array.from(deviceMap.values()).forEach((record, index) => {
+          const recordTime = new Date(record.created_at || record.timestamp || 0).getTime();
+          const isFresh = nowMs - recordTime <= STALE_TIMEOUT_MS;
+
+          // Only include nodes if they sent telemetry within the last 10 minutes
+          if (isFresh) {
+            const devId = String(record.device_id || `ESP32-NODE-${index + 1}`);
+            activeNodes.push({
+              id: devId,
+              device_id: devId,
+              name: `Node ${devId}`,
+              location: 'Active Field Node',
+              color: COLORS[index % COLORS.length],
+              status: 'Online',
+              metrics: {
+                ph: Number(record.ph ?? 0),
+                temperature: Number(record.temperature ?? 0),
+                turbidity: Number(record.turbidity ?? 0)
+              }
+            });
+          }
         });
 
-        setFloaters(updatedNodes);
+        setFloaters(activeNodes);
 
         setSelectedFloater((currentSelected) => {
           if (!currentSelected) return null;
-          const freshData = updatedNodes.find((n) => n.id === currentSelected.id);
-          return freshData ? { ...currentSelected, metrics: freshData.metrics } : currentSelected;
+          const freshData = activeNodes.find((n) => n.id === currentSelected.id);
+          return freshData ? { ...currentSelected, metrics: freshData.metrics } : null;
         });
 
         const latestVal = typeof predRes.data?.predicted_do === 'number'
           ? predRes.data.predicted_do
-          : updatedNodes[0]?.metrics.ph ?? 7.0;
+          : activeNodes[0]?.metrics.ph ?? 7.0;
 
         setTrendHistory((prev) => [...prev.slice(-19), Number(latestVal.toFixed(2))]);
+      } else {
+        setFloaters([]);
       }
     } catch (err) {
       console.error('Backend streaming error:', err);
