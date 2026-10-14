@@ -18,7 +18,8 @@ import {
   TrendingUp,
   Sparkles,
   Loader2,
-  RefreshCw
+  RefreshCw,
+  WifiOff
 } from 'lucide-react';
 
 const FASTAPI_URL =
@@ -76,7 +77,7 @@ export default function Dashboard({ onLogout }: DashboardProps) {
   const [nodePredictLoading, setNodePredictLoading] = useState<boolean>(false);
 
   const [modalHistory, setModalHistory] = useState<number[]>([]);
-  const [trendHistory, setTrendHistory] = useState<number[]>([6.8, 7.0, 7.1, 6.9, 7.2, 7.4, 7.3]);
+  const [trendHistory, setTrendHistory] = useState<number[]>([7.0, 7.0, 7.0, 7.0, 7.0]);
   const [floaters, setFloaters] = useState<FloaterNode[]>([]);
   const [rawTelemetryList, setRawTelemetryList] = useState<TelemetryRecord[]>([]);
 
@@ -137,7 +138,7 @@ export default function Dashboard({ onLogout }: DashboardProps) {
       const rawData = telemRes.data;
       let dataArray: TelemetryRecord[] = Array.isArray(rawData) ? rawData : rawData ? [rawData] : [];
 
-      // Ensure array sorts with the absolute newest/latest records at index 0
+      // Sort by absolute newest records at index 0
       dataArray.sort((a, b) => {
         const timeA = new Date(a.created_at || a.timestamp || 0).getTime();
         const timeB = new Date(b.created_at || b.timestamp || 0).getTime();
@@ -162,7 +163,6 @@ export default function Dashboard({ onLogout }: DashboardProps) {
           const recordTime = new Date(record.created_at || record.timestamp || 0).getTime();
           const isFresh = nowMs - recordTime <= STALE_TIMEOUT_MS;
 
-          // Only include nodes if they sent telemetry within the last 10 minutes
           if (isFresh) {
             const devId = String(record.device_id || `ESP32-NODE-${index + 1}`);
             activeNodes.push({
@@ -189,11 +189,16 @@ export default function Dashboard({ onLogout }: DashboardProps) {
           return freshData ? { ...currentSelected, metrics: freshData.metrics } : null;
         });
 
-        const latestVal = typeof predRes.data?.predicted_do === 'number'
-          ? predRes.data.predicted_do
-          : activeNodes[0]?.metrics.ph ?? 7.0;
+        // Dynamic DO Vector Stream Ingestion
+        if (activeNodes.length > 0) {
+          const latestDoVal = typeof predRes.data?.predicted_do === 'number'
+            ? predRes.data.predicted_do
+            : parseFloat(String(predRes.data?.predicted_do || 7.0));
 
-        setTrendHistory((prev) => [...prev.slice(-19), Number(latestVal.toFixed(2))]);
+          if (!isNaN(latestDoVal)) {
+            setTrendHistory((prev) => [...prev.slice(-14), Number(latestDoVal.toFixed(2))]);
+          }
+        }
       } else {
         setFloaters([]);
       }
@@ -253,26 +258,38 @@ export default function Dashboard({ onLogout }: DashboardProps) {
     );
   }
 
-  const avgDo = typeof prediction?.predicted_do === 'number'
+  const isHardwareOnline = floaters.length > 0;
+  const avgDo = isHardwareOnline && typeof prediction?.predicted_do === 'number'
     ? prediction.predicted_do.toFixed(1)
-    : prediction?.predicted_do ?? '0.0';
+    : isHardwareOnline && prediction?.predicted_do ? String(prediction.predicted_do) : '0.0';
 
+  // Dynamic SVG DO Plot Calculation
   const svgWidth = 500;
-  const svgHeight = 200;
-  const padding = 25;
-  const minVal = Math.min(...trendHistory, 4.0);
-  const maxVal = Math.max(...trendHistory, 10.0);
+  const svgHeight = 220;
+  const padLeft = 45;
+  const padBottom = 30;
+  const padTop = 20;
+  const padRight = 20;
 
-  const points = trendHistory
+  const minDoAxis = 0;
+  const maxDoAxis = 12;
+
+  const getYCoordinate = (doValue: number) => {
+    const clamped = Math.max(minDoAxis, Math.min(maxDoAxis, doValue));
+    return svgHeight - padBottom - ((clamped - minDoAxis) / (maxDoAxis - minDoAxis)) * (svgHeight - padTop - padBottom);
+  };
+
+  const livePoints = isHardwareOnline ? trendHistory : [0, 0, 0, 0, 0];
+  const points = livePoints
     .map((val, idx) => {
-      const x = padding + (idx * (svgWidth - padding * 2)) / Math.max(trendHistory.length - 1, 1);
-      const y = svgHeight - padding - ((val - minVal) * (svgHeight - padding * 2)) / (maxVal - minVal || 1);
+      const x = padLeft + (idx * (svgWidth - padLeft - padRight)) / Math.max(livePoints.length - 1, 1);
+      const y = isHardwareOnline ? getYCoordinate(val) : svgHeight - padBottom;
       return `${x},${y}`;
     })
     .join(' ');
 
-  const currentX = padding + ((trendHistory.length - 1) * (svgWidth - padding * 2)) / Math.max(trendHistory.length - 1, 1);
-  const currentY = svgHeight - padding - ((trendHistory[trendHistory.length - 1] - minVal) * (svgHeight - padding * 2)) / (maxVal - minVal || 1);
+  const currentX = padLeft + ((livePoints.length - 1) * (svgWidth - padLeft - padRight)) / Math.max(livePoints.length - 1, 1);
+  const currentY = isHardwareOnline ? getYCoordinate(livePoints[livePoints.length - 1]) : svgHeight - padBottom;
 
   return (
     <div style={styles.appContainer}>
@@ -291,10 +308,10 @@ export default function Dashboard({ onLogout }: DashboardProps) {
             <section style={styles.kpiContainerRow}>
               <div style={styles.kpiCard}>
                 <div style={styles.cardHeaderGlow}>
-                  <Radio size={14} color="#16a34a" style={{ marginRight: '6px' }} />
+                  <Radio size={14} color={isHardwareOnline ? "#16a34a" : "#94a3b8"} style={{ marginRight: '6px' }} />
                   <p style={styles.kpiTitle}>ACTIVE ARRAYS</p>
                 </div>
-                <p style={{ ...styles.kpiValue, color: '#16a34a' }}>
+                <p style={{ ...styles.kpiValue, color: isHardwareOnline ? '#16a34a' : '#94a3b8' }}>
                   {floaters.length < 10 ? `0${floaters.length}` : floaters.length}
                 </p>
               </div>
@@ -304,25 +321,29 @@ export default function Dashboard({ onLogout }: DashboardProps) {
                   <Cpu size={14} color="#0284c7" style={{ marginRight: '6px' }} />
                   <p style={styles.kpiTitle}>HARDWARE GATEWAY</p>
                 </div>
-                <p style={{ ...styles.kpiValue, color: '#0284c7' }}>ESP32</p>
+                <p style={{ ...styles.kpiValue, color: isHardwareOnline ? '#0284c7' : '#94a3b8' }}>
+                  {isHardwareOnline ? 'ESP32' : 'OFFLINE'}
+                </p>
               </div>
 
               <div style={styles.kpiCard}>
                 <div style={styles.cardHeaderGlow}>
-                  <Activity size={14} color="#e11d48" style={{ marginRight: '6px' }} />
+                  <Activity size={14} color={isHardwareOnline ? "#e11d48" : "#94a3b8"} style={{ marginRight: '6px' }} />
                   <p style={styles.kpiTitle}>MEAN DO PREDICTION</p>
                 </div>
-                <p style={{ ...styles.kpiValue, color: '#e11d48' }}>
+                <p style={{ ...styles.kpiValue, color: isHardwareOnline ? '#e11d48' : '#94a3b8' }}>
                   {avgDo}<span style={styles.unitText}> mg/L</span>
                 </p>
               </div>
 
               <div style={styles.kpiCard}>
                 <div style={styles.cardHeaderGlow}>
-                  <div style={styles.pulseDot} />
+                  <div style={{ ...styles.pulseDot, backgroundColor: isHardwareOnline ? '#22c55e' : '#ef4444' }} />
                   <p style={styles.kpiTitle}>STREAM STATUS</p>
                 </div>
-                <p style={styles.kpiValue}>{error ? 'Reconnecting' : 'Continuous'}</p>
+                <p style={{ ...styles.kpiValue, color: isHardwareOnline ? '#0f172a' : '#ef4444', fontSize: '22px' }}>
+                  {error ? 'Reconnecting' : isHardwareOnline ? 'Continuous' : 'Offline'}
+                </p>
               </div>
             </section>
 
@@ -334,7 +355,10 @@ export default function Dashboard({ onLogout }: DashboardProps) {
                   <div style={styles.radarRing2} />
 
                   {floaters.length === 0 ? (
-                    <div style={styles.emptyState}>No active ESP32 nodes connected</div>
+                    <div style={styles.emptyState}>
+                      <WifiOff size={18} style={{ marginRight: '8px' }} />
+                      <span>No active ESP32 nodes connected</span>
+                    </div>
                   ) : (
                     floaters.map((node, idx) => {
                       const pos = floaters.length === 1 ? RADAR_POSITIONS[0] : RADAR_POSITIONS[(idx % (RADAR_POSITIONS.length - 1)) + 1];
@@ -359,20 +383,45 @@ export default function Dashboard({ onLogout }: DashboardProps) {
               <div style={styles.panelBox}>
                 <div style={styles.panelHeaderRow}>
                   <h3 style={{ ...styles.panelBoxTitle, margin: 0 }}>DO Live Vector Stream</h3>
-                  <div style={styles.cryptoBadge}>
+                  <div style={{ ...styles.cryptoBadge, backgroundColor: isHardwareOnline ? 'rgba(16,185,129,0.1)' : 'rgba(239,68,68,0.1)', color: isHardwareOnline ? '#059669' : '#ef4444' }}>
                     <TrendingUp size={12} style={{ marginRight: '4px' }} />
-                    <span>Real-time Sync</span>
+                    <span>{isHardwareOnline ? 'Real-time Sync' : 'Offline (No Active Stream)'}</span>
                   </div>
                 </div>
+
                 <div style={styles.chartMockCanvas}>
                   <svg viewBox={`0 0 ${svgWidth} ${svgHeight}`} style={styles.svgGraphLine}>
-                    <line x1="0" y1={padding} x2={svgWidth} y2={padding} stroke="#334155" strokeWidth="1" strokeDasharray="4 4" opacity="0.6" />
-                    <line x1="0" y1={svgHeight / 2} x2={svgWidth} y2={svgHeight / 2} stroke="#334155" strokeWidth="1" strokeDasharray="4 4" opacity="0.6" />
-                    <line x1="0" y1={svgHeight - padding} x2={svgWidth} y2={svgHeight - padding} stroke="#334155" strokeWidth="1" strokeDasharray="4 4" opacity="0.6" />
+                    {/* Y-Axis Gridlines & Labels */}
+                    {[12, 9, 6, 3, 0].map((val) => {
+                      const y = getYCoordinate(val);
+                      return (
+                        <g key={`y-axis-${val}`}>
+                          <line x1={padLeft} y1={y} x2={svgWidth - padRight} y2={y} stroke="#334155" strokeWidth="1" strokeDasharray="3 3" opacity="0.4" />
+                          <text x={padLeft - 8} y={y + 4} fill="#94a3b8" fontSize="10" textAnchor="end" fontWeight="600">
+                            {val}
+                          </text>
+                        </g>
+                      );
+                    })}
 
-                    <polyline points={points} fill="none" stroke="#10b981" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
+                    {/* X-Axis Ticks & Labels */}
+                    <line x1={padLeft} y1={svgHeight - padBottom} x2={svgWidth - padRight} y2={svgHeight - padBottom} stroke="#475569" strokeWidth="1.5" />
+                    <text x={padLeft} y={svgHeight - 10} fill="#64748b" fontSize="10" textAnchor="start">History</text>
+                    <text x={svgWidth - padRight} y={svgHeight - 10} fill="#64748b" fontSize="10" textAnchor="end">Now</text>
+                    <text x={padLeft - 25} y={15} fill="#38bdf8" fontSize="10" fontWeight="700">DO (mg/L)</text>
 
-                    {trendHistory.length > 0 && (
+                    {/* Active Line Stream / Baseline */}
+                    <polyline
+                      points={points}
+                      fill="none"
+                      stroke={isHardwareOnline ? '#10b981' : '#64748b'}
+                      strokeWidth={isHardwareOnline ? '3' : '1.5'}
+                      strokeDasharray={isHardwareOnline ? 'none' : '4 4'}
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+
+                    {isHardwareOnline && (
                       <circle cx={currentX} cy={currentY} r="6" fill="#10b981" stroke="#ffffff" strokeWidth="2" />
                     )}
                   </svg>
@@ -529,10 +578,10 @@ export default function Dashboard({ onLogout }: DashboardProps) {
                     {(() => {
                       const svgW = 340;
                       const svgH = 180;
-                      const padTop = 30;
-                      const padBottom = 30;
-                      const padLeft = 20;
-                      const padRight = 20;
+                      const padT = 30;
+                      const padB = 30;
+                      const padL = 20;
+                      const padR = 20;
 
                       const rawPoints = modalHistory.length > 0 ? modalHistory : [6.5];
                       let dataPoints = rawPoints;
@@ -549,26 +598,26 @@ export default function Dashboard({ onLogout }: DashboardProps) {
                         calcY = () => svgH / 2;
                       } else {
                         calcY = (val: number) => {
-                          return svgH - padBottom - ((val - minData) * (svgH - padTop - padBottom)) / (maxData - minData);
+                          return svgH - padB - ((val - minData) * (svgH - padT - padB)) / (maxData - minData);
                         };
                       }
 
                       const polyPoints = dataPoints
                         .map((val, idx) => {
-                          const x = padLeft + (idx * (svgW - padLeft - padRight)) / Math.max(dataPoints.length - 1, 1);
+                          const x = padL + (idx * (svgW - padL - padR)) / Math.max(dataPoints.length - 1, 1);
                           const y = calcY(val);
                           return `${x},${y}`;
                         })
                         .join(' ');
 
-                      const lastX = padLeft + ((dataPoints.length - 1) * (svgW - padLeft - padRight)) / Math.max(dataPoints.length - 1, 1);
+                      const lastX = padL + ((dataPoints.length - 1) * (svgW - padL - padR)) / Math.max(dataPoints.length - 1, 1);
                       const lastY = calcY(dataPoints[dataPoints.length - 1]);
 
                       return (
                         <svg viewBox={`0 0 ${svgW} ${svgH}`} style={{ width: '100%', height: '100%', position: 'relative', zIndex: 2 }}>
-                          <line x1="0" y1={padTop} x2={svgW} y2={padTop} stroke="#1e293b" strokeWidth="1" strokeDasharray="3 3" opacity="0.8" />
+                          <line x1="0" y1={padT} x2={svgW} y2={padT} stroke="#1e293b" strokeWidth="1" strokeDasharray="3 3" opacity="0.8" />
                           <line x1="0" y1={svgH / 2} x2={svgW} y2={svgH / 2} stroke="#1e293b" strokeWidth="1" strokeDasharray="3 3" opacity="0.8" />
-                          <line x1="0" y1={svgH - padBottom} x2={svgW} y2={svgH - padBottom} stroke="#1e293b" strokeWidth="1" strokeDasharray="3 3" opacity="0.8" />
+                          <line x1="0" y1={svgH - padB} x2={svgW} y2={svgH - padB} stroke="#1e293b" strokeWidth="1" strokeDasharray="3 3" opacity="0.8" />
 
                           <polyline
                             points={polyPoints}
@@ -635,9 +684,9 @@ const styles: Record<string, React.CSSProperties> = {
   latestBadge: { backgroundColor: '#0284c7', color: '#ffffff', fontSize: '10px', fontWeight: '800', padding: '3px 8px', borderRadius: '10px', letterSpacing: '0.05em' },
   indexBadge: { color: '#64748b', fontSize: '12px', fontWeight: '600' },
   refreshBtn: { display: 'flex', alignItems: 'center', gap: '6px', backgroundColor: '#f1f5f9', border: '1px solid #cbd5e1', padding: '6px 12px', borderRadius: '8px', cursor: 'pointer', fontSize: '12px', fontWeight: '600', color: '#334155' },
-  cryptoBadge: { display: 'flex', alignItems: 'center', backgroundColor: 'rgba(16,185,129,0.1)', color: '#059669', padding: '4px 10px', borderRadius: '20px', fontSize: '12px', fontWeight: '600' },
+  cryptoBadge: { display: 'flex', alignItems: 'center', padding: '4px 10px', borderRadius: '20px', fontSize: '12px', fontWeight: '600' },
   mapCanvas: { height: '260px', backgroundColor: '#f8fafc', borderRadius: '12px', position: 'relative', overflow: 'hidden' },
-  emptyState: { display: 'flex', height: '100%', alignItems: 'center', justifyContent: 'center', color: '#94a3b8', fontSize: '13px' },
+  emptyState: { display: 'flex', height: '100%', alignItems: 'center', justifyContent: 'center', color: '#94a3b8', fontSize: '13px', fontWeight: '600' },
   radarRing1: { position: 'absolute', width: '120px', height: '120px', borderRadius: '50%', border: '1px dashed #cbd5e1', top: '50%', left: '50%', transform: 'translate(-50%, -50%)' },
   radarRing2: { position: 'absolute', width: '220px', height: '220px', borderRadius: '50%', border: '1px solid #e2e8f0', top: '50%', left: '50%', transform: 'translate(-50%, -50%)' },
   floaterInteractiveBubble: { position: 'absolute', background: 'transparent', border: 'none', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px' },
