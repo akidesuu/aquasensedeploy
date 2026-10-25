@@ -27,7 +27,8 @@ const FASTAPI_URL =
   import.meta.env.VITE_API_URL ||
   'https://aquasense-backend-osmi.onrender.com';
 
-const STALE_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes threshold
+// Adjusted timeout to 12 hours to account for timezone differences (UTC vs local)
+const STALE_TIMEOUT_MS = 12 * 60 * 60 * 1000; 
 
 interface PredictionData {
   predicted_do: number | string;
@@ -105,7 +106,7 @@ export default function Dashboard({ onLogout }: DashboardProps) {
       const numVal = typeof predictedValue === 'number' ? predictedValue : parseFloat(String(predictedValue));
 
       setNodePrediction(
-        typeof predictedValue === 'number' ? predictedValue.toFixed(2) : String(predictedValue)
+        !isNaN(numVal) ? numVal.toFixed(2) : String(predictedValue)
       );
 
       if (!isNaN(numVal)) {
@@ -114,10 +115,10 @@ export default function Dashboard({ onLogout }: DashboardProps) {
     } catch (err) {
       console.warn('Real-time node prediction failed, falling back:', err);
       if (prediction?.predicted_do !== undefined) {
-        const fallback = typeof prediction.predicted_do === 'number'
-          ? prediction.predicted_do.toFixed(2)
-          : String(prediction.predicted_do);
-        setNodePrediction(fallback);
+        const numVal = typeof prediction.predicted_do === 'number'
+          ? prediction.predicted_do
+          : parseFloat(String(prediction.predicted_do));
+        setNodePrediction(!isNaN(numVal) ? numVal.toFixed(2) : String(prediction.predicted_do));
       } else {
         setNodePrediction('N/A');
       }
@@ -162,7 +163,7 @@ export default function Dashboard({ onLogout }: DashboardProps) {
 
         Array.from(deviceMap.values()).forEach((record, index) => {
           const recordTime = new Date(record.created_at || record.timestamp || 0).getTime();
-          const isFresh = nowMs - recordTime <= STALE_TIMEOUT_MS;
+          const isFresh = Math.abs(nowMs - recordTime) <= STALE_TIMEOUT_MS;
 
           if (isFresh) {
             const devId = String(record.device_id || `ESP32-NODE-${index + 1}`);
@@ -260,9 +261,13 @@ export default function Dashboard({ onLogout }: DashboardProps) {
   }
 
   const isHardwareOnline = floaters.length > 0;
-  const avgDo = isHardwareOnline && typeof prediction?.predicted_do === 'number'
-    ? prediction.predicted_do.toFixed(1)
-    : isHardwareOnline && prediction?.predicted_do ? String(prediction.predicted_do) : '0.0';
+  const rawAvgDo = typeof prediction?.predicted_do === 'number'
+    ? prediction.predicted_do
+    : parseFloat(String(prediction?.predicted_do || 0));
+  
+  const avgDo = isHardwareOnline && !isNaN(rawAvgDo)
+    ? rawAvgDo.toFixed(2)
+    : '0.00';
 
   // Dynamic SVG DO Plot Calculation
   const svgWidth = 500;
@@ -469,8 +474,12 @@ export default function Dashboard({ onLogout }: DashboardProps) {
                       rawTelemetryList.map((rec, index) => {
                         const timeStr = rec.created_at || rec.timestamp || 'N/A';
                         const isLatest = index === 0;
-                        const predDoVal = rec.predicted_do !== undefined && rec.predicted_do !== null
-                          ? `${Number(rec.predicted_do).toFixed(2)} mg/L`
+                        const numDo = typeof rec.predicted_do === 'number'
+                          ? rec.predicted_do
+                          : parseFloat(String(rec.predicted_do || ''));
+
+                        const predDoVal = !isNaN(numDo)
+                          ? `${numDo.toFixed(2)} mg/L`
                           : 'N/A';
 
                         return (
