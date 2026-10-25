@@ -39,6 +39,7 @@ interface TelemetryRecord {
   ph: number;
   temperature: number;
   turbidity: number;
+  predicted_do?: number | string;
   created_at?: string;
   timestamp?: string;
 }
@@ -430,7 +431,7 @@ export default function Dashboard({ onLogout }: DashboardProps) {
               </div>
             </div>
 
-            {/* RAW TELEMETRY DATABASE STREAM TABLE */}
+            {/* RAW TELEMETRY DATABASE STREAM TABLE WITH PREDICTED DO */}
             <div style={styles.panelBoxFullWidth}>
               <div style={styles.panelHeaderRow}>
                 <div style={styles.flexHeader}>
@@ -453,13 +454,14 @@ export default function Dashboard({ onLogout }: DashboardProps) {
                       <th style={styles.tableTh}>pH Level</th>
                       <th style={styles.tableTh}>Temp (°C)</th>
                       <th style={styles.tableTh}>Turbidity (NTU)</th>
+                      <th style={styles.tableTh}>Predicted DO</th>
                       <th style={styles.tableTh}>Timestamp</th>
                     </tr>
                   </thead>
                   <tbody>
                     {rawTelemetryList.length === 0 ? (
                       <tr>
-                        <td colSpan={6} style={styles.emptyTd}>
+                        <td colSpan={7} style={styles.emptyTd}>
                           No raw telemetry records fetched from database.
                         </td>
                       </tr>
@@ -467,6 +469,9 @@ export default function Dashboard({ onLogout }: DashboardProps) {
                       rawTelemetryList.map((rec, index) => {
                         const timeStr = rec.created_at || rec.timestamp || 'N/A';
                         const isLatest = index === 0;
+                        const predDoVal = rec.predicted_do !== undefined && rec.predicted_do !== null
+                          ? `${Number(rec.predicted_do).toFixed(2)} mg/L`
+                          : 'N/A';
 
                         return (
                           <tr key={`${rec.device_id}-${index}`} style={{ ...styles.tableTr, backgroundColor: isLatest ? 'rgba(2, 132, 199, 0.05)' : 'transparent' }}>
@@ -481,6 +486,7 @@ export default function Dashboard({ onLogout }: DashboardProps) {
                             <td style={styles.tableTdPh}>{Number(rec.ph ?? 0).toFixed(2)}</td>
                             <td style={styles.tableTdTemp}>{Number(rec.temperature ?? 0).toFixed(1)}°C</td>
                             <td style={styles.tableTdTurb}>{Number(rec.turbidity ?? 0).toFixed(1)} NTU</td>
+                            <td style={styles.tableTdDo}>{predDoVal}</td>
                             <td style={styles.tableTdTime}>{timeStr}</td>
                           </tr>
                         );
@@ -707,6 +713,7 @@ const styles: Record<string, React.CSSProperties> = {
   tableTdPh: { padding: '10px 14px', color: '#16a34a', fontWeight: '600' },
   tableTdTemp: { padding: '10px 14px', color: '#0284c7', fontWeight: '600' },
   tableTdTurb: { padding: '10px 14px', color: '#e11d48', fontWeight: '600' },
+  tableTdDo: { padding: '10px 14px', color: '#059669', fontWeight: '700' },
   tableTdTime: { padding: '10px 14px', color: '#64748b', fontSize: '12px' },
   emptyTd: { padding: '20px', textAlign: 'center', color: '#94a3b8' },
   modalOverlayMask: { position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '20px' },
