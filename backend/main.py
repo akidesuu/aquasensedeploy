@@ -12,11 +12,16 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 import joblib
-from keras.models import load_model
+from keras.layers import Dense, Dropout, Input, LSTM
+from keras.models import Sequential, load_model
 import numpy as np
 import pandas as pd
 from pydantic import BaseModel, Field
 from pymongo import MongoClient
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler
 
 # ==============================================================================
 # 1. CONFIGURATION & RETRAINED FEATURE SELECTION
@@ -27,7 +32,7 @@ SCALER_X_FILE = os.getenv("SCALER_X_PATH", "scaler_X.pkl")
 SCALER_Y_FILE = os.getenv("SCALER_Y_PATH", "scaler_y.pkl")
 TIME_STEPS = 10  # Matches retrained 10-step sequence model
 
-# Exact 15 features matching retrained pipeline (R2 = 0.8276)
+# Exact 15 features matching retrained pipeline
 FEATURE_COLUMNS = [
     'pH',
     'Temperature',
@@ -80,30 +85,35 @@ except Exception as e:
   print(f">>>> Warning: MongoDB database connection failed: {e}")
   db = None
 
+
 # ==============================================================================
 # 4. LOAD MACHINE LEARNING ARTIFACTS
 # ==============================================================================
+def load_scaler(primary_path: str, fallback_path: str):
+  if os.path.exists(primary_path):
+    return joblib.load(primary_path)
+  elif os.path.exists(fallback_path):
+    return joblib.load(fallback_path)
+  return None
+
+
 device_buffers: Dict[str, list] = defaultdict(list)
 
-if all(
-    os.path.exists(f)
-    for f in [LSTM_MODEL_FILE, RF_MODEL_FILE, SCALER_X_FILE, SCALER_Y_FILE]
-):
-  print(">>> Loading retrained ML model artifacts into memory...")
-  lstm_model = load_model(LSTM_MODEL_FILE)
-  rf_model = joblib.load(RF_MODEL_FILE)
-  scaler_x = joblib.load(SCALER_X_FILE)
-  scaler_y = joblib.load(SCALER_Y_FILE)
+lstm_model = load_model(LSTM_MODEL_FILE) if os.path.exists(LSTM_MODEL_FILE) else None
+rf_model = joblib.load(RF_MODEL_FILE) if os.path.exists(RF_MODEL_FILE) else None
+scaler_x = load_scaler(SCALER_X_FILE, "scaler_x.pkl")
+scaler_y = load_scaler(SCALER_Y_FILE, "scaler_y.pkl")
+
+if all([lstm_model, rf_model, scaler_x, scaler_y]):
   print(
       ">>> Retrained ML artifacts loaded successfully (10 sequence steps, 15"
       " features)."
   )
 else:
   print(
-      ">>>> Warning: ML model artifacts not found. Ensure lstm_model.keras,"
-      " rf_model.pkl, scaler_X.pkl, scaler_y.pkl are present."
+      ">>>> Warning: ML model artifacts incomplete or missing. Run retraining"
+      " pass to generate model files."
   )
-  lstm_model, rf_model, scaler_x, scaler_y = None, None, None, None
 
 
 # ==============================================================================
@@ -755,7 +765,7 @@ def delete_device(device_id: str):
 
 
 # ------------------------------------------------------------------------------
-# TELEMETRY & PREDICTION ENDPOINTS
+# TELEMETRY, PREDICTION & RETRAINING ENDPOINTS
 # ------------------------------------------------------------------------------
 @app.post("/telemetry", status_code=status.HTTP_201_CREATED)
 async def receive_telemetry(payload: TelemetryPayload):
@@ -766,10 +776,11 @@ async def receive_telemetry(payload: TelemetryPayload):
 
   now = datetime.now(timezone.utc)
 
-  # Estimate DO baseline for target smoothing buffer
   temp = payload.temperature
   ph = payload.ph
-  estimated_do = max(3.0, min(9.0, 7.0 - (temp - 25.0) * 0.15 + (ph - 7.0) * 0.2))
+  estimated_do = max(
+      3.0, min(9.0, 7.0 - (temp - 25.0) * 0.15 + (ph - 7.0) * 0.2)
+  )
 
   sensor_record = {
       "temperature": payload.temperature,
@@ -780,8 +791,9 @@ async def receive_telemetry(payload: TelemetryPayload):
   }
 
   ml_result = await predict_dissolved_oxygen(payload.device_id, sensor_record)
-  predicted_do = ml_result.get("dissolved_oxygen_mg_L", None)
+  predicted_do = ml_result.get("dissolved_oxygen_mg_L", round(estimated_do, 4))
 
+  # Store document with ALL frontend property aliases to fix N/A in UI tables & cards
   telemetry_doc = {
       "device_id": payload.device_id,
       "temperature": payload.temperature,
@@ -789,6 +801,10 @@ async def receive_telemetry(payload: TelemetryPayload):
       "turbidity": payload.turbidity,
       "precipitation": payload.precipitation,
       "predicted_do": predicted_do,
+      "predictedDO": predicted_do,
+      "predicted_DO": predicted_do,
+      "DO": predicted_do,
+      "dissolved_oxygen_mg_L": predicted_do,
       "timestamp": now,
   }
   db["raw_telemetry"].insert_one(telemetry_doc)
@@ -800,7 +816,8 @@ async def receive_telemetry(payload: TelemetryPayload):
       "turbidity": payload.turbidity,
       "precipitation": payload.precipitation,
       "predicted_do": predicted_do,
-      "status": ml_result.get("status"),
+      "predictedDO": predicted_do,
+      "status": ml_result.get("status", "success"),
       "timestamp": now,
   }
   db["prediction_logs"].insert_one(log_doc)
@@ -898,7 +915,9 @@ async def run_predict_endpoint(payload: TelemetryPayload):
   now = datetime.now(timezone.utc)
   temp = payload.temperature
   ph = payload.ph
-  estimated_do = max(3.0, min(9.0, 7.0 - (temp - 25.0) * 0.15 + (ph - 7.0) * 0.2))
+  estimated_do = max(
+      3.0, min(9.0, 7.0 - (temp - 25.0) * 0.15 + (ph - 7.0) * 0.2)
+  )
 
   sensor_record = {
       "temperature": payload.temperature,
@@ -909,9 +928,12 @@ async def run_predict_endpoint(payload: TelemetryPayload):
   }
 
   ml_result = await predict_dissolved_oxygen(payload.device_id, sensor_record)
+  predicted_do = ml_result.get("dissolved_oxygen_mg_L", round(estimated_do, 4))
 
   return {
-      "predicted_do": ml_result.get("dissolved_oxygen_mg_L", 7.0),
+      "predicted_do": predicted_do,
+      "predictedDO": predicted_do,
+      "predicted_DO": predicted_do,
       "status": ml_result.get("status", "success"),
       "device_id": payload.device_id,
   }
@@ -931,11 +953,165 @@ def get_latest_prediction():
       return {
           "message": "No machine learning logs compiled yet.",
           "predicted_do": 7.0,
+          "predictedDO": 7.0,
           "status": "Stable",
       }
 
     latest_record["_id"] = str(latest_record["_id"])
     return latest_record
+  except Exception as e:
+    raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/retrain")
+def retrain_model_pipeline(file_path: str = "aquasense_db.raw_telemetry.xlsx"):
+  """Retrains the hybrid LSTM-RF model and saves the 4 model artifacts to disk."""
+  global lstm_model, rf_model, scaler_x, scaler_y
+
+  if not os.path.exists(file_path):
+    raise HTTPException(
+        status_code=404, detail=f"Dataset file '{file_path}' not found."
+    )
+
+  try:
+    if file_path.endswith(".xlsx") or file_path.endswith(".xls"):
+      df = pd.read_excel(file_path)
+    else:
+      df = pd.read_csv(file_path)
+
+    df = df.dropna(subset=["temperature", "ph", "DO(mg/L)"]).copy()
+    df = df.rename(
+        columns={
+            "ph": "pH",
+            "temperature": "Temperature",
+            "turbidity": "Turbidity",
+            "DO(mg/L)": "DO",
+        }
+    )
+
+    if "timestamp" in df.columns:
+      df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce")
+      df = df.sort_values("timestamp").reset_index(drop=True)
+
+      second_of_day = (
+          df["timestamp"].dt.hour * 3600
+          + df["timestamp"].dt.minute * 60
+          + df["timestamp"].dt.second
+      )
+      df["sin_time"] = np.sin(2 * np.pi * second_of_day / 86400.0)
+      df["cos_time"] = np.cos(2 * np.pi * second_of_day / 86400.0)
+    else:
+      df["sin_time"] = 0.0
+      df["cos_time"] = 0.0
+
+    df["DO_smooth"] = df["DO"].rolling(window=5, min_periods=1).mean()
+    df["DO_lag1"] = df["DO_smooth"].shift(1)
+    df["DO_lag2"] = df["DO_smooth"].shift(2)
+    df["DO_lag3"] = df["DO_smooth"].shift(3)
+
+    df["temp_diff"] = df["Temperature"].diff().fillna(0)
+    df["ph_diff"] = df["pH"].diff().fillna(0)
+    df["temp_roll_mean"] = df["Temperature"].rolling(5, min_periods=1).mean()
+    df["ph_roll_mean"] = df["pH"].rolling(5, min_periods=1).mean()
+    df["temp_roll10_mean"] = (
+        df["Temperature"].rolling(10, min_periods=1).mean()
+    )
+    df["ph_roll10_mean"] = df["pH"].rolling(10, min_periods=1).mean()
+
+    df["ph_temp_ratio"] = df["pH"] / (df["Temperature"] + 1e-5)
+
+    df_model = df.dropna(
+        subset=["DO_lag1", "DO_lag2", "DO_lag3", "DO_smooth"]
+    ).reset_index(drop=True)
+
+    target_col = "DO_smooth"
+    for col in FEATURE_COLUMNS + [target_col]:
+      df_model[col] = pd.to_numeric(df_model[col], errors="coerce").fillna(0)
+
+    X_raw = df_model[FEATURE_COLUMNS].values
+    y_raw = df_model[target_col].values
+
+    new_scaler_x = StandardScaler()
+    new_scaler_y = StandardScaler()
+
+    X_scaled = new_scaler_x.fit_transform(X_raw)
+    y_scaled = new_scaler_y.fit_transform(y_raw.reshape(-1, 1))
+
+    X_seq, y_seq = [], []
+    for i in range(len(X_scaled) - TIME_STEPS):
+      X_seq.append(X_scaled[i : (i + TIME_STEPS)])
+      y_seq.append(y_scaled[i + TIME_STEPS])
+
+    X_seq = np.array(X_seq)
+    y_seq = np.array(y_seq)
+
+    X_train, X_test, y_train, y_test = train_test_split(
+        X_seq, y_seq, test_size=0.2, random_state=42
+    )
+
+    new_lstm_model = Sequential([
+        Input(shape=(TIME_STEPS, len(FEATURE_COLUMNS))),
+        LSTM(128, return_sequences=True),
+        Dropout(0.15),
+        LSTM(64, return_sequences=False),
+        Dropout(0.15),
+        Dense(32, activation="relu"),
+        Dense(1),
+    ])
+
+    new_lstm_model.compile(optimizer="adam", loss="mse")
+    new_lstm_model.fit(
+        X_train,
+        y_train,
+        epochs=150,
+        batch_size=16,
+        validation_split=0.1,
+        verbose=0,
+    )
+
+    lstm_train_preds = new_lstm_model.predict(X_train, verbose=0)
+    lstm_test_preds = new_lstm_model.predict(X_test, verbose=0)
+
+    X_train_flat = X_train[:, -1, :]
+    X_test_flat = X_test[:, -1, :]
+
+    rf_X_train = np.hstack((X_train_flat, lstm_train_preds))
+    rf_X_test = np.hstack((X_test_flat, lstm_test_preds))
+
+    new_rf_model = RandomForestRegressor(
+        n_estimators=500, max_depth=15, min_samples_split=2, random_state=42
+    )
+    new_rf_model.fit(rf_X_train, y_train.ravel())
+
+    rf_preds_scaled = new_rf_model.predict(rf_X_test)
+    final_preds = new_scaler_y.inverse_transform(rf_preds_scaled.reshape(-1, 1))
+    y_actual = new_scaler_y.inverse_transform(y_test)
+
+    rmse = float(np.sqrt(mean_squared_error(y_actual, final_preds)))
+    mae = float(mean_absolute_error(y_actual, final_preds))
+    r2 = float(r2_score(y_actual, final_preds))
+
+    # Save artifact files to disk
+    new_lstm_model.save(LSTM_MODEL_FILE)
+    joblib.dump(new_rf_model, RF_MODEL_FILE)
+    joblib.dump(new_scaler_x, SCALER_X_FILE)
+    joblib.dump(new_scaler_y, SCALER_Y_FILE)
+
+    # Reload into active memory
+    lstm_model = new_lstm_model
+    rf_model = new_rf_model
+    scaler_x = new_scaler_x
+    scaler_y = new_scaler_y
+
+    return {
+        "status": "success",
+        "message": "Model retrained and saved successfully.",
+        "metrics": {
+            "RMSE": round(rmse, 4),
+            "MAE": round(mae, 4),
+            "R2_Score": round(r2, 4),
+        },
+    }
   except Exception as e:
     raise HTTPException(status_code=500, detail=str(e))
 

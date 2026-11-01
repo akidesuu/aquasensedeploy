@@ -17,6 +17,7 @@
         "LSTM",
         "Nillama",
         "numpy",
+        "preds",
         "Pressable",
         "pycache",
         "pydantic",
