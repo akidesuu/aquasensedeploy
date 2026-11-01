@@ -30,8 +30,8 @@ const FASTAPI_URL =
 const STALE_TIMEOUT_MS = 12 * 60 * 60 * 1000;
 
 // Coordinates for King Fisher Wee Viralmultimedia Services Inc., Kauswagan, CDO
-const DEFAULT_LAT = 8.4960;
-const DEFAULT_LNG = 124.6390;
+const DEFAULT_LAT = 8.4972;
+const DEFAULT_LNG = 124.6367;
 
 interface PredictionData {
   predicted_do: number | string;
@@ -225,7 +225,7 @@ export default function Dashboard({ onLogout }: DashboardProps) {
     };
   }, [floaters, handleSelectFloater]);
 
-  // Robust Map Lifecycle Management (Fixes disappearance on tab navigation)
+  // 1. MAP INITIALIZATION (Runs ONLY once when activeTab is 'dashboard')
   useEffect(() => {
     if (activeTab !== 'dashboard') return;
 
@@ -236,13 +236,12 @@ export default function Dashboard({ onLogout }: DashboardProps) {
       const Leaflet = (window as any).L;
       if (!Leaflet) return;
 
-      // Reset and destroy old instance if DOM node was remounted
       if (mapInstanceRef.current) {
         mapInstanceRef.current.remove();
         mapInstanceRef.current = null;
       }
 
-      // Initialize fresh map instance tied to current container
+      // Initialize map ONLY ONCE (User zoom/center persists)
       const map = Leaflet.map(mapContainerRef.current).setView([DEFAULT_LAT, DEFAULT_LNG], 16);
       mapInstanceRef.current = map;
 
@@ -251,53 +250,6 @@ export default function Dashboard({ onLogout }: DashboardProps) {
         attribution: '© AquaSense GIS | OpenStreetMap'
       }).addTo(map);
 
-      const isOnline = floaters.length > 0;
-      const pinColor = isOnline ? '#22c55e' : '#ef4444';
-      const statusText = isOnline ? 'ONLINE' : 'OFFLINE';
-      const activeNode = floaters[0];
-
-      const pinIconHtml = `
-        <div style="position: relative; display: flex; align-items: center; justify-content: center;">
-          <svg width="34" height="34" viewBox="0 0 24 24" fill="${pinColor}" stroke="#ffffff" stroke-width="1.5">
-            <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z"/>
-            <circle cx="12" cy="9" r="2.5" fill="#ffffff"/>
-          </svg>
-        </div>
-      `;
-
-      const customIcon = Leaflet.divIcon({
-        className: 'aquasense-map-pin',
-        html: pinIconHtml,
-        iconSize: [34, 34],
-        iconAnchor: [17, 34],
-        popupAnchor: [0, -34]
-      });
-
-      const popupContent = `
-        <div style="font-family: sans-serif; padding: 4px;">
-          <div style="font-weight: 700; font-size: 14px; color: #0f172a; margin-bottom: 2px;">
-            ${activeNode ? activeNode.name : 'ESP32_POND_01'}
-          </div>
-          <div style="display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 800; color: white; background-color: ${pinColor}; margin-bottom: 6px;">
-            ${statusText}
-          </div>
-          <div style="font-size: 11px; color: #64748b; margin-bottom: 8px;">
-            King Fisher Wee Viralmultimedia Services, Kauswagan CDO
-          </div>
-          <button 
-            onclick="window.openAquaNodeModal('${activeNode ? activeNode.id : 'ESP32_POND_01'}')"
-            style="width: 100%; background: #0284c7; color: white; border: none; padding: 6px 10px; border-radius: 6px; font-size: 11px; font-weight: 700; cursor: pointer;"
-          >
-            Inspect Node Metrics
-          </button>
-        </div>
-      `;
-
-      markerRef.current = Leaflet.marker([DEFAULT_LAT, DEFAULT_LNG], { icon: customIcon })
-        .addTo(map)
-        .bindPopup(popupContent);
-
-      // Force recalculation of map container dimensions after DOM render
       setTimeout(() => {
         if (mapInstanceRef.current) {
           mapInstanceRef.current.invalidateSize();
@@ -327,7 +279,6 @@ export default function Dashboard({ onLogout }: DashboardProps) {
       setupMap();
     }
 
-    // Unmount cleanup: destroy Leaflet instance when leaving the Dashboard tab
     return () => {
       isMounted = false;
       if (mapInstanceRef.current) {
@@ -335,6 +286,64 @@ export default function Dashboard({ onLogout }: DashboardProps) {
         mapInstanceRef.current = null;
       }
     };
+  }, [activeTab]);
+
+  // 2. DYNAMIC MARKER UPDATER (Updates marker status WITHOUT resetting map zoom/center)
+  useEffect(() => {
+    if (activeTab !== 'dashboard' || !mapInstanceRef.current) return;
+
+    const Leaflet = (window as any).L;
+    if (!Leaflet) return;
+
+    const isOnline = floaters.length > 0;
+    const pinColor = isOnline ? '#22c55e' : '#ef4444';
+    const statusText = isOnline ? 'ONLINE' : 'OFFLINE';
+    const activeNode = floaters[0];
+
+    const pinIconHtml = `
+      <div style="position: relative; display: flex; align-items: center; justify-content: center;">
+        <svg width="34" height="34" viewBox="0 0 24 24" fill="${pinColor}" stroke="#ffffff" stroke-width="1.5">
+          <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z"/>
+          <circle cx="12" cy="9" r="2.5" fill="#ffffff"/>
+        </svg>
+      </div>
+    `;
+
+    const customIcon = Leaflet.divIcon({
+      className: 'aquasense-map-pin',
+      html: pinIconHtml,
+      iconSize: [34, 34],
+      iconAnchor: [17, 34],
+      popupAnchor: [0, -34]
+    });
+
+    if (markerRef.current) {
+      mapInstanceRef.current.removeLayer(markerRef.current);
+    }
+
+    const popupContent = `
+      <div style="font-family: sans-serif; padding: 4px;">
+        <div style="font-weight: 700; font-size: 14px; color: #0f172a; margin-bottom: 2px;">
+          ${activeNode ? activeNode.name : 'ESP32_POND_01'}
+        </div>
+        <div style="display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 800; color: white; background-color: ${pinColor}; margin-bottom: 6px;">
+          ${statusText}
+        </div>
+        <div style="font-size: 11px; color: #64748b; margin-bottom: 8px;">
+          King Fisher Wee Viralmultimedia Services, Kauswagan CDO
+        </div>
+        <button 
+          onclick="window.openAquaNodeModal('${activeNode ? activeNode.id : 'ESP32_POND_01'}')"
+          style="width: 100%; background: #0284c7; color: white; border: none; padding: 6px 10px; border-radius: 6px; font-size: 11px; font-weight: 700; cursor: pointer;"
+        >
+          Inspect Node Metrics
+        </button>
+      </div>
+    `;
+
+    markerRef.current = Leaflet.marker([DEFAULT_LAT, DEFAULT_LNG], { icon: customIcon })
+      .addTo(mapInstanceRef.current)
+      .bindPopup(popupContent);
   }, [activeTab, floaters]);
 
   useEffect(() => {
