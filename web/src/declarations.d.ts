@@ -2,3 +2,6 @@
 /// <reference types="vite/client" />
 
 declare module 'lucide-react';
+
+/// const DEFAULT_LAT = 8.4960;
+/// const DEFAULT_LNG = 124.6390;

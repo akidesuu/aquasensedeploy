@@ -27,10 +27,9 @@ const FASTAPI_URL =
   import.meta.env.VITE_API_URL ||
   'https://aquasense-backend-osmi.onrender.com';
 
-// Adjusted timeout to 12 hours to account for timezone differences (UTC vs local)
 const STALE_TIMEOUT_MS = 12 * 60 * 60 * 1000;
 
-// Coordinates for King Fisher Wee Viralmultimedia Services Inc., Kauswagan, CDO 
+// Coordinates for King Fisher Wee Viralmultimedia Services Inc., Kauswagan, CDO
 const DEFAULT_LAT = 8.4960;
 const DEFAULT_LNG = 124.6390;
 
@@ -226,45 +225,31 @@ export default function Dashboard({ onLogout }: DashboardProps) {
     };
   }, [floaters, handleSelectFloater]);
 
-  // Initialize and Update Leaflet Offline Map inside Dashboard
+  // Robust Map Lifecycle Management (Fixes disappearance on tab navigation)
   useEffect(() => {
-    if (activeTab !== 'dashboard' || !mapContainerRef.current) return;
+    if (activeTab !== 'dashboard') return;
 
-    const L = (window as any).L;
-    if (!L) {
-      // Inject Leaflet CSS & JS dynamically if not present
-      if (!document.getElementById('leaflet-css')) {
-        const link = document.createElement('link');
-        link.id = 'leaflet-css';
-        link.rel = 'stylesheet';
-        link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
-        document.head.appendChild(link);
-      }
-      if (!document.getElementById('leaflet-js')) {
-        const script = document.createElement('script');
-        script.id = 'leaflet-js';
-        script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
-        script.onload = () => initMap();
-        document.body.appendChild(script);
-      } else {
-        initMap();
-      }
-    } else {
-      initMap();
-    }
+    let isMounted = true;
 
-    function initMap() {
+    const setupMap = () => {
+      if (!isMounted || !mapContainerRef.current) return;
       const Leaflet = (window as any).L;
-      if (!Leaflet || !mapContainerRef.current) return;
+      if (!Leaflet) return;
 
-      if (!mapInstanceRef.current) {
-        mapInstanceRef.current = Leaflet.map(mapContainerRef.current).setView([DEFAULT_LAT, DEFAULT_LNG], 16);
-        
-        Leaflet.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-          maxZoom: 19,
-          attribution: '© AquaSense GIS | OpenStreetMap'
-        }).addTo(mapInstanceRef.current);
+      // Reset and destroy old instance if DOM node was remounted
+      if (mapInstanceRef.current) {
+        mapInstanceRef.current.remove();
+        mapInstanceRef.current = null;
       }
+
+      // Initialize fresh map instance tied to current container
+      const map = Leaflet.map(mapContainerRef.current).setView([DEFAULT_LAT, DEFAULT_LNG], 16);
+      mapInstanceRef.current = map;
+
+      Leaflet.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+        attribution: '© AquaSense GIS | OpenStreetMap'
+      }).addTo(map);
 
       const isOnline = floaters.length > 0;
       const pinColor = isOnline ? '#22c55e' : '#ef4444';
@@ -288,10 +273,6 @@ export default function Dashboard({ onLogout }: DashboardProps) {
         popupAnchor: [0, -34]
       });
 
-      if (markerRef.current) {
-        mapInstanceRef.current.removeLayer(markerRef.current);
-      }
-
       const popupContent = `
         <div style="font-family: sans-serif; padding: 4px;">
           <div style="font-weight: 700; font-size: 14px; color: #0f172a; margin-bottom: 2px;">
@@ -313,9 +294,47 @@ export default function Dashboard({ onLogout }: DashboardProps) {
       `;
 
       markerRef.current = Leaflet.marker([DEFAULT_LAT, DEFAULT_LNG], { icon: customIcon })
-        .addTo(mapInstanceRef.current)
+        .addTo(map)
         .bindPopup(popupContent);
+
+      // Force recalculation of map container dimensions after DOM render
+      setTimeout(() => {
+        if (mapInstanceRef.current) {
+          mapInstanceRef.current.invalidateSize();
+        }
+      }, 100);
+    };
+
+    const Leaflet = (window as any).L;
+    if (!Leaflet) {
+      if (!document.getElementById('leaflet-css')) {
+        const link = document.createElement('link');
+        link.id = 'leaflet-css';
+        link.rel = 'stylesheet';
+        link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+        document.head.appendChild(link);
+      }
+      if (!document.getElementById('leaflet-js')) {
+        const script = document.createElement('script');
+        script.id = 'leaflet-js';
+        script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+        script.onload = () => setupMap();
+        document.body.appendChild(script);
+      } else {
+        setupMap();
+      }
+    } else {
+      setupMap();
     }
+
+    // Unmount cleanup: destroy Leaflet instance when leaving the Dashboard tab
+    return () => {
+      isMounted = false;
+      if (mapInstanceRef.current) {
+        mapInstanceRef.current.remove();
+        mapInstanceRef.current = null;
+      }
+    };
   }, [activeTab, floaters]);
 
   useEffect(() => {
@@ -369,7 +388,6 @@ export default function Dashboard({ onLogout }: DashboardProps) {
     ? rawAvgDo.toFixed(2)
     : '0.00';
 
-  // Dynamic SVG DO Plot Calculation
   const svgWidth = 500;
   const svgHeight = 220;
   const padLeft = 45;
@@ -454,7 +472,6 @@ export default function Dashboard({ onLogout }: DashboardProps) {
             </section>
 
             <div style={styles.splitGridDashboard}>
-              {/* INTERACTIVE GEOLOCATION MAP REPLACING RADAR CANVAS */}
               <div style={styles.panelBox}>
                 <div style={styles.panelHeaderRow}>
                   <div style={styles.flexHeader}>
