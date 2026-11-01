@@ -22,6 +22,12 @@ import {
   MapPin
 } from 'lucide-react';
 
+declare global {
+  interface Window {
+    L: any;
+  }
+}
+
 const FASTAPI_URL =
   import.meta.env.VITE_API_BASE_URL ||
   import.meta.env.VITE_API_URL ||
@@ -78,7 +84,7 @@ export default function Dashboard({ onLogout }: DashboardProps) {
   const [floaters, setFloaters] = useState<FloaterNode[]>([]);
   const [rawTelemetryList, setRawTelemetryList] = useState<TelemetryRecord[]>([]);
 
-  // Leaflet map container and instance references
+  // Ref to hold current map instance
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
   const mapInstanceRef = useRef<any>(null);
   const markerRef = useRef<any>(null);
@@ -88,6 +94,14 @@ export default function Dashboard({ onLogout }: DashboardProps) {
   const isAccountManagementTab = ['accounts', 'account-management', 'accountmanagement', 'users', 'user-management', 'usermanagement'].includes(normTab);
 
   const fetchNodePrediction = useCallback(async (node: FloaterNode) => {
+    // If node is offline, force 0.00 metrics immediately without calling API
+    if (node.status === 'Offline' || node.metrics.ph === 0) {
+      setNodePrediction('0.00');
+      setModalHistory([0, 0, 0, 0]);
+      setNodePredictLoading(false);
+      return;
+    }
+
     setNodePredictLoading(true);
 
     try {
@@ -105,9 +119,7 @@ export default function Dashboard({ onLogout }: DashboardProps) {
       const predictedValue = res.data?.predicted_do;
       const numVal = typeof predictedValue === 'number' ? predictedValue : parseFloat(String(predictedValue));
 
-      setNodePrediction(
-        !isNaN(numVal) ? numVal.toFixed(2) : String(predictedValue)
-      );
+      setNodePrediction(!isNaN(numVal) ? numVal.toFixed(2) : String(predictedValue));
 
       if (!isNaN(numVal)) {
         setModalHistory((prev) => [...prev.slice(-9), Number(numVal.toFixed(2))]);
@@ -186,7 +198,7 @@ export default function Dashboard({ onLogout }: DashboardProps) {
         setSelectedFloater((currentSelected) => {
           if (!currentSelected) return null;
           const freshData = activeNodes.find((n) => n.id === currentSelected.id);
-          return freshData ? { ...currentSelected, metrics: freshData.metrics } : null;
+          return freshData ? { ...currentSelected, metrics: freshData.metrics } : currentSelected;
         });
 
         if (activeNodes.length > 0) {
@@ -215,69 +227,92 @@ export default function Dashboard({ onLogout }: DashboardProps) {
     fetchNodePrediction(node);
   }, [fetchNodePrediction]);
 
-  // Expose global window handler so map popups can open React modal directly
-  useEffect(() => {
-    (window as any).openAquaNodeModal = (nodeId: string) => {
-      const target = floaters.find((f) => f.id === nodeId) || floaters[0];
-      if (target) {
-        handleSelectFloater(target);
-      }
-    };
-  }, [floaters, handleSelectFloater]);
+  // Handle clicking the Pin directly from the Map
+  const handleMapPinClick = () => {
+    if (floaters.length > 0) {
+      handleSelectFloater(floaters[0]);
+    } else {
+      // Offline Zero-State Floater Object
+      const offlineNode: FloaterNode = {
+        id: 'ESP32_POND_01',
+        device_id: 'ESP32_POND_01',
+        name: 'Node ESP32_POND_01 (Offline)',
+        location: 'King Fisher Wee Viralmultimedia Services, Kauswagan CDO',
+        color: '#ef4444',
+        status: 'Offline',
+        metrics: { ph: 0, temperature: 0, turbidity: 0 }
+      };
+      handleSelectFloater(offlineNode);
+    }
+  };
 
-  // 1. MAP INITIALIZATION (Runs ONLY once when activeTab is 'dashboard')
+  // Map Setup Effect - Ensures map script loads cleanly and renders without blank canvas
   useEffect(() => {
     if (activeTab !== 'dashboard') return;
 
     let isMounted = true;
 
-    const setupMap = () => {
-      if (!isMounted || !mapContainerRef.current) return;
-      const Leaflet = (window as any).L;
-      if (!Leaflet) return;
+    const loadLeafletScript = () => {
+      if (window.L) {
+        initMap();
+        return;
+      }
+
+      if (!document.getElementById('leaflet-css-pkg')) {
+        const link = document.createElement('link');
+        link.id = 'leaflet-css-pkg';
+        link.rel = 'stylesheet';
+        link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+        document.head.appendChild(link);
+      }
+
+      if (!document.getElementById('leaflet-js-pkg')) {
+        const script = document.createElement('script');
+        script.id = 'leaflet-js-pkg';
+        script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+        script.onload = () => {
+          if (isMounted) initMap();
+        };
+        document.body.appendChild(script);
+      } else {
+        const checkL = setInterval(() => {
+          if (window.L) {
+            clearInterval(checkL);
+            if (isMounted) initMap();
+          }
+        }, 100);
+      }
+    };
+
+    const initMap = () => {
+      if (!mapContainerRef.current || !window.L) return;
 
       if (mapInstanceRef.current) {
         mapInstanceRef.current.remove();
         mapInstanceRef.current = null;
       }
 
-      // Initialize map ONLY ONCE (User zoom/center persists)
-      const map = Leaflet.map(mapContainerRef.current).setView([DEFAULT_LAT, DEFAULT_LNG], 16);
-      mapInstanceRef.current = map;
+      const map = window.L.map(mapContainerRef.current, {
+        center: [DEFAULT_LAT, DEFAULT_LNG],
+        zoom: 16,
+        zoomControl: true
+      });
 
-      Leaflet.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      window.L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         maxZoom: 19,
         attribution: '© AquaSense GIS | OpenStreetMap'
       }).addTo(map);
+
+      mapInstanceRef.current = map;
 
       setTimeout(() => {
         if (mapInstanceRef.current) {
           mapInstanceRef.current.invalidateSize();
         }
-      }, 100);
+      }, 200);
     };
 
-    const Leaflet = (window as any).L;
-    if (!Leaflet) {
-      if (!document.getElementById('leaflet-css')) {
-        const link = document.createElement('link');
-        link.id = 'leaflet-css';
-        link.rel = 'stylesheet';
-        link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
-        document.head.appendChild(link);
-      }
-      if (!document.getElementById('leaflet-js')) {
-        const script = document.createElement('script');
-        script.id = 'leaflet-js';
-        script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
-        script.onload = () => setupMap();
-        document.body.appendChild(script);
-      } else {
-        setupMap();
-      }
-    } else {
-      setupMap();
-    }
+    loadLeafletScript();
 
     return () => {
       isMounted = false;
@@ -288,21 +323,17 @@ export default function Dashboard({ onLogout }: DashboardProps) {
     };
   }, [activeTab]);
 
-  // 2. DYNAMIC MARKER UPDATER (Updates marker status WITHOUT resetting map zoom/center)
+  // Marker Updater Effect - Updates marker pin position and color when state changes
   useEffect(() => {
-    if (activeTab !== 'dashboard' || !mapInstanceRef.current) return;
+    if (activeTab !== 'dashboard' || !mapInstanceRef.current || !window.L) return;
 
-    const Leaflet = (window as any).L;
-    if (!Leaflet) return;
-
+    const Leaflet = window.L;
     const isOnline = floaters.length > 0;
     const pinColor = isOnline ? '#22c55e' : '#ef4444';
-    const statusText = isOnline ? 'ONLINE' : 'OFFLINE';
-    const activeNode = floaters[0];
 
     const pinIconHtml = `
-      <div style="position: relative; display: flex; align-items: center; justify-content: center;">
-        <svg width="34" height="34" viewBox="0 0 24 24" fill="${pinColor}" stroke="#ffffff" stroke-width="1.5">
+      <div style="cursor: pointer; transform: translate(-50%, -100%); transition: transform 0.2s ease;">
+        <svg width="38" height="38" viewBox="0 0 24 24" fill="${pinColor}" stroke="#ffffff" stroke-width="1.5" style="filter: drop-shadow(0 4px 6px rgba(0,0,0,0.3));">
           <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z"/>
           <circle cx="12" cy="9" r="2.5" fill="#ffffff"/>
         </svg>
@@ -310,40 +341,22 @@ export default function Dashboard({ onLogout }: DashboardProps) {
     `;
 
     const customIcon = Leaflet.divIcon({
-      className: 'aquasense-map-pin',
+      className: 'aquasense-interactive-pin',
       html: pinIconHtml,
-      iconSize: [34, 34],
-      iconAnchor: [17, 34],
-      popupAnchor: [0, -34]
+      iconSize: [38, 38],
+      iconAnchor: [19, 38]
     });
 
     if (markerRef.current) {
       mapInstanceRef.current.removeLayer(markerRef.current);
     }
 
-    const popupContent = `
-      <div style="font-family: sans-serif; padding: 4px;">
-        <div style="font-weight: 700; font-size: 14px; color: #0f172a; margin-bottom: 2px;">
-          ${activeNode ? activeNode.name : 'ESP32_POND_01'}
-        </div>
-        <div style="display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 800; color: white; background-color: ${pinColor}; margin-bottom: 6px;">
-          ${statusText}
-        </div>
-        <div style="font-size: 11px; color: #64748b; margin-bottom: 8px;">
-          King Fisher Wee Viralmultimedia Services, Kauswagan CDO
-        </div>
-        <button 
-          onclick="window.openAquaNodeModal('${activeNode ? activeNode.id : 'ESP32_POND_01'}')"
-          style="width: 100%; background: #0284c7; color: white; border: none; padding: 6px 10px; border-radius: 6px; font-size: 11px; font-weight: 700; cursor: pointer;"
-        >
-          Inspect Node Metrics
-        </button>
-      </div>
-    `;
-
     markerRef.current = Leaflet.marker([DEFAULT_LAT, DEFAULT_LNG], { icon: customIcon })
-      .addTo(mapInstanceRef.current)
-      .bindPopup(popupContent);
+      .addTo(mapInstanceRef.current);
+
+    markerRef.current.on('click', () => {
+      handleMapPinClick();
+    });
   }, [activeTab, floaters]);
 
   useEffect(() => {
@@ -496,7 +509,7 @@ export default function Dashboard({ onLogout }: DashboardProps) {
                   </span>
                 </div>
                 <div style={styles.mapCanvas}>
-                  <div ref={mapContainerRef} style={{ width: '100%', height: '100%', borderRadius: '12px' }} />
+                  <div ref={mapContainerRef} style={{ width: '100%', height: '100%', borderRadius: '12px', zIndex: 1 }} />
                 </div>
               </div>
 
@@ -636,6 +649,7 @@ export default function Dashboard({ onLogout }: DashboardProps) {
           />
         )}
 
+        {/* NODE INSPECTION MODAL */}
         {selectedFloater && (
           <div style={styles.modalOverlayMask} onClick={() => setSelectedFloater(null)}>
             <div style={styles.modalBodyWindow} onClick={(e) => e.stopPropagation()}>
@@ -653,20 +667,35 @@ export default function Dashboard({ onLogout }: DashboardProps) {
                   </div>
 
                   <div style={styles.modalMetricStack}>
-                    <div style={styles.modalPredictedDoBrick}>
+                    <div style={{
+                      ...styles.modalPredictedDoBrick,
+                      backgroundColor: selectedFloater.status === 'Offline' ? '#fef2f2' : '#ecfdf5',
+                      borderColor: selectedFloater.status === 'Offline' ? '#fca5a5' : '#a7f3d0'
+                    }}>
                       <div style={styles.flexGroup8}>
-                        <Sparkles size={18} color="#059669" />
+                        <Sparkles size={18} color={selectedFloater.status === 'Offline' ? '#dc2626' : '#059669'} />
                         <div>
-                          <p style={styles.predictedBrickLabel}>Predicted Dissolved Oxygen</p>
-                          <span style={styles.predictedBrickSub}>FastAPI Model Inference</span>
+                          <p style={{
+                            ...styles.predictedBrickLabel,
+                            color: selectedFloater.status === 'Offline' ? '#991b1b' : '#065f46'
+                          }}>Predicted Dissolved Oxygen</p>
+                          <span style={{
+                            ...styles.predictedBrickSub,
+                            color: selectedFloater.status === 'Offline' ? '#b91c1c' : '#047857'
+                          }}>
+                            {selectedFloater.status === 'Offline' ? 'Hardware Unreachable' : 'FastAPI Model Inference'}
+                          </span>
                         </div>
                       </div>
-                      <span style={styles.predictedBrickValue}>
+                      <span style={{
+                        ...styles.predictedBrickValue,
+                        color: selectedFloater.status === 'Offline' ? '#dc2626' : '#065f46'
+                      }}>
                         {nodePredictLoading ? (
                           <Loader2 size={20} style={{ animation: 'spin 1s linear infinite' }} />
                         ) : (
                           <>
-                            {nodePrediction ?? '0.00'}
+                            {selectedFloater.status === 'Offline' ? '0.00' : (nodePrediction ?? '0.00')}
                             <span style={{ fontSize: '12px', fontWeight: '500', marginLeft: '3px' }}>mg/L</span>
                           </>
                         )}
@@ -675,26 +704,32 @@ export default function Dashboard({ onLogout }: DashboardProps) {
 
                     <div style={styles.modalGridBrick}>
                       <div style={styles.flexGroup8}>
-                        <Droplet size={18} color="#16a34a" />
+                        <Droplet size={18} color={selectedFloater.status === 'Offline' ? '#94a3b8' : '#16a34a'} />
                         <p style={styles.brickLabelText}>pH</p>
                       </div>
-                      <span style={{ ...styles.brickValueText, color: '#16a34a' }}>{selectedFloater.metrics.ph}</span>
+                      <span style={{ ...styles.brickValueText, color: selectedFloater.status === 'Offline' ? '#94a3b8' : '#16a34a' }}>
+                        {selectedFloater.status === 'Offline' ? '0.00' : selectedFloater.metrics.ph}
+                      </span>
                     </div>
 
                     <div style={styles.modalGridBrick}>
                       <div style={styles.flexGroup8}>
-                        <Thermometer size={18} color="#0284c7" />
+                        <Thermometer size={18} color={selectedFloater.status === 'Offline' ? '#94a3b8' : '#0284c7'} />
                         <p style={styles.brickLabelText}>Temperature</p>
                       </div>
-                      <span style={{ ...styles.brickValueText, color: '#0284c7' }}>{selectedFloater.metrics.temperature}°C</span>
+                      <span style={{ ...styles.brickValueText, color: selectedFloater.status === 'Offline' ? '#94a3b8' : '#0284c7' }}>
+                        {selectedFloater.status === 'Offline' ? '0.0' : selectedFloater.metrics.temperature}°C
+                      </span>
                     </div>
 
                     <div style={styles.modalGridBrick}>
                       <div style={styles.flexGroup8}>
-                        <Eye size={18} color="#e11d48" />
+                        <Eye size={18} color={selectedFloater.status === 'Offline' ? '#94a3b8' : '#e11d48'} />
                         <p style={styles.brickLabelText}>Turbidity</p>
                       </div>
-                      <span style={{ ...styles.brickValueText, color: '#e11d48' }}>{selectedFloater.metrics.turbidity} NTU</span>
+                      <span style={{ ...styles.brickValueText, color: selectedFloater.status === 'Offline' ? '#94a3b8' : '#e11d48' }}>
+                        {selectedFloater.status === 'Offline' ? '0.0' : selectedFloater.metrics.turbidity} NTU
+                      </span>
                     </div>
                   </div>
                 </div>
@@ -709,7 +744,8 @@ export default function Dashboard({ onLogout }: DashboardProps) {
                       const padL = 20;
                       const padR = 20;
 
-                      const rawPoints = modalHistory.length > 0 ? modalHistory : [6.5];
+                      const isNodeOffline = selectedFloater.status === 'Offline';
+                      const rawPoints = isNodeOffline ? [0, 0] : (modalHistory.length > 0 ? modalHistory : [6.5]);
                       let dataPoints = rawPoints;
                       if (dataPoints.length === 1) {
                         dataPoints = [dataPoints[0], dataPoints[0]];
@@ -720,8 +756,8 @@ export default function Dashboard({ onLogout }: DashboardProps) {
 
                       let calcY: (val: number) => number;
 
-                      if (minData === maxData) {
-                        calcY = () => svgH / 2;
+                      if (minData === maxData || isNodeOffline) {
+                        calcY = () => svgH - padB;
                       } else {
                         calcY = (val: number) => {
                           return svgH - padB - ((val - minData) * (svgH - padT - padB)) / (maxData - minData);
@@ -748,7 +784,7 @@ export default function Dashboard({ onLogout }: DashboardProps) {
                           <polyline
                             points={polyPoints}
                             fill="none"
-                            stroke="#10b981"
+                            stroke={isNodeOffline ? '#ef4444' : '#10b981'}
                             strokeWidth="3"
                             strokeLinecap="round"
                             strokeLinejoin="round"
@@ -759,8 +795,8 @@ export default function Dashboard({ onLogout }: DashboardProps) {
                             cx={lastX}
                             cy={lastY}
                             r="6"
-                            fill="#10b981"
-                            stroke="#064e3b"
+                            fill={isNodeOffline ? '#ef4444' : '#10b981'}
+                            stroke={isNodeOffline ? '#7f1d1d' : '#064e3b'}
                             strokeWidth="2"
                             style={{ transition: 'all 0.4s ease-in-out' }}
                           />
@@ -776,7 +812,9 @@ export default function Dashboard({ onLogout }: DashboardProps) {
                     })()}
                     <div style={styles.chartWatermarkGridModal} />
                   </div>
-                  <div style={styles.modalChartFooterLabel}>ESP32 Live Telemetry Vector</div>
+                  <div style={styles.modalChartFooterLabel}>
+                    {selectedFloater.status === 'Offline' ? 'Node Telemetry Stream Inactive' : 'ESP32 Live Telemetry Vector'}
+                  </div>
                 </div>
               </div>
             </div>
