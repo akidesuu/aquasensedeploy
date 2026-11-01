@@ -28,6 +28,25 @@ declare global {
   }
 }
 
+// Ensure Leaflet Assets are loaded globally as early as possible
+if (typeof document !== 'undefined') {
+  if (!document.getElementById('leaflet-css-pkg')) {
+    const link = document.createElement('link');
+    link.id = 'leaflet-css-pkg';
+    link.rel = 'stylesheet';
+    link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+    document.head.appendChild(link);
+  }
+
+  if (!document.getElementById('leaflet-js-pkg')) {
+    const script = document.createElement('script');
+    script.id = 'leaflet-js-pkg';
+    script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+    script.async = true;
+    document.head.appendChild(script);
+  }
+}
+
 const FASTAPI_URL =
   import.meta.env.VITE_API_BASE_URL ||
   import.meta.env.VITE_API_URL ||
@@ -94,7 +113,6 @@ export default function Dashboard({ onLogout }: DashboardProps) {
   const isAccountManagementTab = ['accounts', 'account-management', 'accountmanagement', 'users', 'user-management', 'usermanagement'].includes(normTab);
 
   const fetchNodePrediction = useCallback(async (node: FloaterNode) => {
-    // If node is offline or zeroed out, force 0.00 metrics immediately
     if (node.status === 'Offline' || node.metrics.ph === 0) {
       setNodePrediction('0.00');
       setModalHistory([0, 0, 0, 0]);
@@ -232,7 +250,6 @@ export default function Dashboard({ onLogout }: DashboardProps) {
     if (floaters.length > 0) {
       handleSelectFloater(floaters[0]);
     } else {
-      // Offline Zero-State Floater Object
       const offlineNode: FloaterNode = {
         id: 'ESP32_POND_01',
         device_id: 'ESP32_POND_01',
@@ -246,107 +263,78 @@ export default function Dashboard({ onLogout }: DashboardProps) {
     }
   };
 
-  // Immediate and Reliable Map Setup Effect
-  useEffect(() => {
-    if (activeTab !== 'dashboard') return;
+  // Map Initialization Handler
+  const initMapInstance = useCallback(() => {
+    if (!mapContainerRef.current || !window.L) return;
 
-    let isMounted = true;
-    let resizeObserver: ResizeObserver | null = null;
+    if (mapInstanceRef.current) {
+      mapInstanceRef.current.remove();
+      mapInstanceRef.current = null;
+    }
 
-    const initMap = () => {
-      if (!mapContainerRef.current || !window.L) return;
+    const map = window.L.map(mapContainerRef.current, {
+      center: [DEFAULT_LAT, DEFAULT_LNG],
+      zoom: 16,
+      zoomControl: true
+    });
 
+    window.L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '© AquaSense GIS | OpenStreetMap'
+    }).addTo(map);
+
+    mapInstanceRef.current = map;
+
+    // Force tile recalculation sequence for initial page load
+    const forceRefresh = () => {
       if (mapInstanceRef.current) {
-        mapInstanceRef.current.remove();
-        mapInstanceRef.current = null;
-      }
-
-      const map = window.L.map(mapContainerRef.current, {
-        center: [DEFAULT_LAT, DEFAULT_LNG],
-        zoom: 16,
-        zoomControl: true
-      });
-
-      window.L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        maxZoom: 19,
-        attribution: '© AquaSense GIS | OpenStreetMap'
-      }).addTo(map);
-
-      mapInstanceRef.current = map;
-
-      // Double-trigger layout calculations to ensure first-load render works cleanly
-      requestAnimationFrame(() => {
-        if (mapInstanceRef.current) {
-          mapInstanceRef.current.invalidateSize();
-        }
-      });
-
-      setTimeout(() => {
-        if (mapInstanceRef.current) {
-          mapInstanceRef.current.invalidateSize();
-        }
-      }, 250);
-
-      // ResizeObserver forces Leaflet to refresh tile bounds when CSS containers settle
-      if (mapContainerRef.current) {
-        resizeObserver = new ResizeObserver(() => {
-          if (mapInstanceRef.current) {
-            mapInstanceRef.current.invalidateSize();
-          }
-        });
-        resizeObserver.observe(mapContainerRef.current);
+        mapInstanceRef.current.invalidateSize();
       }
     };
 
-    const loadLeafletScript = () => {
+    requestAnimationFrame(forceRefresh);
+    setTimeout(forceRefresh, 100);
+    setTimeout(forceRefresh, 300);
+    setTimeout(forceRefresh, 800);
+  }, []);
+
+  // Effect to construct map when loading completes and DOM container is mounted
+  useEffect(() => {
+    if (loading || activeTab !== 'dashboard') return;
+
+    let isMounted = true;
+    let pollInterval: any = null;
+
+    const prepareAndBuildMap = () => {
+      if (!isMounted) return;
+
       if (window.L) {
-        initMap();
-        return;
-      }
-
-      if (!document.getElementById('leaflet-css-pkg')) {
-        const link = document.createElement('link');
-        link.id = 'leaflet-css-pkg';
-        link.rel = 'stylesheet';
-        link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
-        document.head.appendChild(link);
-      }
-
-      if (!document.getElementById('leaflet-js-pkg')) {
-        const script = document.createElement('script');
-        script.id = 'leaflet-js-pkg';
-        script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
-        script.onload = () => {
-          if (isMounted) initMap();
-        };
-        document.body.appendChild(script);
+        initMapInstance();
       } else {
-        const checkL = setInterval(() => {
+        pollInterval = setInterval(() => {
           if (window.L) {
-            clearInterval(checkL);
-            if (isMounted) initMap();
+            clearInterval(pollInterval);
+            if (isMounted) initMapInstance();
           }
         }, 50);
       }
     };
 
-    loadLeafletScript();
+    prepareAndBuildMap();
 
     return () => {
       isMounted = false;
-      if (resizeObserver) {
-        resizeObserver.disconnect();
-      }
+      if (pollInterval) clearInterval(pollInterval);
       if (mapInstanceRef.current) {
         mapInstanceRef.current.remove();
         mapInstanceRef.current = null;
       }
     };
-  }, [activeTab]);
+  }, [loading, activeTab, initMapInstance]);
 
   // Marker Updater Effect
   useEffect(() => {
-    if (activeTab !== 'dashboard' || !mapInstanceRef.current || !window.L) return;
+    if (loading || activeTab !== 'dashboard' || !mapInstanceRef.current || !window.L) return;
 
     const Leaflet = window.L;
     const isOnline = floaters.length > 0;
@@ -378,7 +366,7 @@ export default function Dashboard({ onLogout }: DashboardProps) {
     markerRef.current.on('click', () => {
       handleMapPinClick();
     });
-  }, [activeTab, floaters]);
+  }, [loading, activeTab, floaters]);
 
   useEffect(() => {
     if (selectedFloater) {
