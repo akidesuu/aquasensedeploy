@@ -13,6 +13,7 @@
         "gensalt",
         "hashpw",
         "joblib",
+        "Kauswagan",
         "keras",
         "LSTM",
         "Nillama",
@@ -32,6 +33,7 @@
         "usermanagement",
         "uvicorn",
         "venv",
+        "Viralmultimedia",
         "worklets"
     ]
 }

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import axios from 'axios';
 import Sidebar from './components/Sidebar';
 import DeviceManagement from './DeviceManagement';
@@ -19,7 +19,7 @@ import {
   Sparkles,
   Loader2,
   RefreshCw,
-  WifiOff
+  MapPin
 } from 'lucide-react';
 
 const FASTAPI_URL =
@@ -28,7 +28,11 @@ const FASTAPI_URL =
   'https://aquasense-backend-osmi.onrender.com';
 
 // Adjusted timeout to 12 hours to account for timezone differences (UTC vs local)
-const STALE_TIMEOUT_MS = 12 * 60 * 60 * 1000; 
+const STALE_TIMEOUT_MS = 12 * 60 * 60 * 1000;
+
+// Coordinates for King Fisher Wee Viralmultimedia Services Inc., Kauswagan, CDO 
+const DEFAULT_LAT = 8.4960;
+const DEFAULT_LNG = 124.6390;
 
 interface PredictionData {
   predicted_do: number | string;
@@ -58,14 +62,6 @@ interface DashboardProps {
   onLogout: () => void;
 }
 
-const RADAR_POSITIONS: React.CSSProperties[] = [
-  { top: '50%', left: '50%', transform: 'translate(-50%, -50%)' },
-  { top: '35%', left: '30%' },
-  { bottom: '35%', right: '30%' },
-  { top: '25%', right: '25%' },
-  { bottom: '25%', left: '25%' }
-];
-
 const COLORS = ['#00c853', '#2196f3', '#ff9800', '#ff5c5c', '#8e44ad'];
 
 export default function Dashboard({ onLogout }: DashboardProps) {
@@ -82,6 +78,11 @@ export default function Dashboard({ onLogout }: DashboardProps) {
   const [trendHistory, setTrendHistory] = useState<number[]>([7.0, 7.0, 7.0, 7.0, 7.0]);
   const [floaters, setFloaters] = useState<FloaterNode[]>([]);
   const [rawTelemetryList, setRawTelemetryList] = useState<TelemetryRecord[]>([]);
+
+  // Leaflet map container and instance references
+  const mapContainerRef = useRef<HTMLDivElement | null>(null);
+  const mapInstanceRef = useRef<any>(null);
+  const markerRef = useRef<any>(null);
 
   const normTab = activeTab.trim().toLowerCase().replace(/[_\s]+/g, '-');
   const isDeviceManagementTab = ['devices', 'device-management', 'devicemanagement'].includes(normTab);
@@ -140,7 +141,6 @@ export default function Dashboard({ onLogout }: DashboardProps) {
       const rawData = telemRes.data;
       let dataArray: TelemetryRecord[] = Array.isArray(rawData) ? rawData : rawData ? [rawData] : [];
 
-      // Sort by absolute newest records at index 0
       dataArray.sort((a, b) => {
         const timeA = new Date(a.created_at || a.timestamp || 0).getTime();
         const timeB = new Date(b.created_at || b.timestamp || 0).getTime();
@@ -152,7 +152,6 @@ export default function Dashboard({ onLogout }: DashboardProps) {
       if (dataArray.length > 0) {
         const deviceMap = new Map<string, TelemetryRecord>();
         
-        // Pick latest record per unique device
         dataArray.forEach((record) => {
           const id = record.device_id || 'UNKNOWN_NODE';
           if (!deviceMap.has(id)) deviceMap.set(id, record);
@@ -171,7 +170,7 @@ export default function Dashboard({ onLogout }: DashboardProps) {
               id: devId,
               device_id: devId,
               name: `Node ${devId}`,
-              location: 'Active Field Node',
+              location: 'King Fisher Wee Viralmultimedia Services, Kauswagan CDO',
               color: COLORS[index % COLORS.length],
               status: 'Online',
               metrics: {
@@ -191,7 +190,6 @@ export default function Dashboard({ onLogout }: DashboardProps) {
           return freshData ? { ...currentSelected, metrics: freshData.metrics } : null;
         });
 
-        // Dynamic DO Vector Stream Ingestion
         if (activeNodes.length > 0) {
           const latestDoVal = typeof predRes.data?.predicted_do === 'number'
             ? predRes.data.predicted_do
@@ -212,17 +210,119 @@ export default function Dashboard({ onLogout }: DashboardProps) {
     }
   }, []);
 
-  const handleSelectFloater = (node: FloaterNode) => {
+  const handleSelectFloater = useCallback((node: FloaterNode) => {
     setSelectedFloater(node);
     setModalHistory([]);
     fetchNodePrediction(node);
-  };
+  }, [fetchNodePrediction]);
+
+  // Expose global window handler so map popups can open React modal directly
+  useEffect(() => {
+    (window as any).openAquaNodeModal = (nodeId: string) => {
+      const target = floaters.find((f) => f.id === nodeId) || floaters[0];
+      if (target) {
+        handleSelectFloater(target);
+      }
+    };
+  }, [floaters, handleSelectFloater]);
+
+  // Initialize and Update Leaflet Offline Map inside Dashboard
+  useEffect(() => {
+    if (activeTab !== 'dashboard' || !mapContainerRef.current) return;
+
+    const L = (window as any).L;
+    if (!L) {
+      // Inject Leaflet CSS & JS dynamically if not present
+      if (!document.getElementById('leaflet-css')) {
+        const link = document.createElement('link');
+        link.id = 'leaflet-css';
+        link.rel = 'stylesheet';
+        link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+        document.head.appendChild(link);
+      }
+      if (!document.getElementById('leaflet-js')) {
+        const script = document.createElement('script');
+        script.id = 'leaflet-js';
+        script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+        script.onload = () => initMap();
+        document.body.appendChild(script);
+      } else {
+        initMap();
+      }
+    } else {
+      initMap();
+    }
+
+    function initMap() {
+      const Leaflet = (window as any).L;
+      if (!Leaflet || !mapContainerRef.current) return;
+
+      if (!mapInstanceRef.current) {
+        mapInstanceRef.current = Leaflet.map(mapContainerRef.current).setView([DEFAULT_LAT, DEFAULT_LNG], 16);
+        
+        Leaflet.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+          maxZoom: 19,
+          attribution: '© AquaSense GIS | OpenStreetMap'
+        }).addTo(mapInstanceRef.current);
+      }
+
+      const isOnline = floaters.length > 0;
+      const pinColor = isOnline ? '#22c55e' : '#ef4444';
+      const statusText = isOnline ? 'ONLINE' : 'OFFLINE';
+      const activeNode = floaters[0];
+
+      const pinIconHtml = `
+        <div style="position: relative; display: flex; align-items: center; justify-content: center;">
+          <svg width="34" height="34" viewBox="0 0 24 24" fill="${pinColor}" stroke="#ffffff" stroke-width="1.5">
+            <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z"/>
+            <circle cx="12" cy="9" r="2.5" fill="#ffffff"/>
+          </svg>
+        </div>
+      `;
+
+      const customIcon = Leaflet.divIcon({
+        className: 'aquasense-map-pin',
+        html: pinIconHtml,
+        iconSize: [34, 34],
+        iconAnchor: [17, 34],
+        popupAnchor: [0, -34]
+      });
+
+      if (markerRef.current) {
+        mapInstanceRef.current.removeLayer(markerRef.current);
+      }
+
+      const popupContent = `
+        <div style="font-family: sans-serif; padding: 4px;">
+          <div style="font-weight: 700; font-size: 14px; color: #0f172a; margin-bottom: 2px;">
+            ${activeNode ? activeNode.name : 'ESP32_POND_01'}
+          </div>
+          <div style="display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 800; color: white; background-color: ${pinColor}; margin-bottom: 6px;">
+            ${statusText}
+          </div>
+          <div style="font-size: 11px; color: #64748b; margin-bottom: 8px;">
+            King Fisher Wee Viralmultimedia Services, Kauswagan CDO
+          </div>
+          <button 
+            onclick="window.openAquaNodeModal('${activeNode ? activeNode.id : 'ESP32_POND_01'}')"
+            style="width: 100%; background: #0284c7; color: white; border: none; padding: 6px 10px; border-radius: 6px; font-size: 11px; font-weight: 700; cursor: pointer;"
+          >
+            Inspect Node Metrics
+          </button>
+        </div>
+      `;
+
+      markerRef.current = Leaflet.marker([DEFAULT_LAT, DEFAULT_LNG], { icon: customIcon })
+        .addTo(mapInstanceRef.current)
+        .bindPopup(popupContent);
+    }
+  }, [activeTab, floaters]);
 
   useEffect(() => {
     if (selectedFloater) {
       fetchNodePrediction(selectedFloater);
     }
-  }, [selectedFloater?.metrics.ph, selectedFloater?.metrics.temperature, selectedFloater?.metrics.turbidity]);
+  }, [selectedFloater?.metrics.ph, selectedFloater?.metrics.temperature, selectedFloater?.metrics.turbidity, fetchNodePrediction]);
 
   useEffect(() => {
     fetchCentralData();
@@ -354,35 +454,23 @@ export default function Dashboard({ onLogout }: DashboardProps) {
             </section>
 
             <div style={styles.splitGridDashboard}>
+              {/* INTERACTIVE GEOLOCATION MAP REPLACING RADAR CANVAS */}
               <div style={styles.panelBox}>
-                <h3 style={styles.panelBoxTitle}>Fleet Radar</h3>
+                <div style={styles.panelHeaderRow}>
+                  <div style={styles.flexHeader}>
+                    <MapPin size={18} color="#0284c7" />
+                    <h3 style={{ ...styles.panelBoxTitle, margin: 0 }}>Fleet Geolocation Radar Map</h3>
+                  </div>
+                  <span style={{
+                    ...styles.cryptoBadge,
+                    backgroundColor: isHardwareOnline ? 'rgba(34,197,94,0.1)' : 'rgba(239,68,68,0.1)',
+                    color: isHardwareOnline ? '#16a34a' : '#ef4444'
+                  }}>
+                    {isHardwareOnline ? 'Node Online' : 'Node Offline'}
+                  </span>
+                </div>
                 <div style={styles.mapCanvas}>
-                  <div style={styles.radarRing1} />
-                  <div style={styles.radarRing2} />
-
-                  {floaters.length === 0 ? (
-                    <div style={styles.emptyState}>
-                      <WifiOff size={18} style={{ marginRight: '8px' }} />
-                      <span>No active ESP32 nodes connected</span>
-                    </div>
-                  ) : (
-                    floaters.map((node, idx) => {
-                      const pos = floaters.length === 1 ? RADAR_POSITIONS[0] : RADAR_POSITIONS[(idx % (RADAR_POSITIONS.length - 1)) + 1];
-                      return (
-                        <button
-                          key={node.id}
-                          type="button"
-                          onClick={() => handleSelectFloater(node)}
-                          style={{ ...styles.floaterInteractiveBubble, ...pos }}
-                        >
-                          <div style={{ ...styles.colorCircleNode, borderColor: node.color }}>
-                            <div style={{ ...styles.innerCoreRadarDot, backgroundColor: node.color }} />
-                          </div>
-                          <span style={styles.bubbleTextLabel}>{node.name}</span>
-                        </button>
-                      );
-                    })
-                  )}
+                  <div ref={mapContainerRef} style={{ width: '100%', height: '100%', borderRadius: '12px' }} />
                 </div>
               </div>
 
@@ -397,7 +485,6 @@ export default function Dashboard({ onLogout }: DashboardProps) {
 
                 <div style={styles.chartMockCanvas}>
                   <svg viewBox={`0 0 ${svgWidth} ${svgHeight}`} style={styles.svgGraphLine}>
-                    {/* Y-Axis Gridlines & Labels */}
                     {[12, 9, 6, 3, 0].map((val) => {
                       const y = getYCoordinate(val);
                       return (
@@ -410,13 +497,11 @@ export default function Dashboard({ onLogout }: DashboardProps) {
                       );
                     })}
 
-                    {/* X-Axis Ticks & Labels */}
                     <line x1={padLeft} y1={svgHeight - padBottom} x2={svgWidth - padRight} y2={svgHeight - padBottom} stroke="#475569" strokeWidth="1.5" />
                     <text x={padLeft} y={svgHeight - 10} fill="#64748b" fontSize="10" textAnchor="start">History</text>
                     <text x={svgWidth - padRight} y={svgHeight - 10} fill="#64748b" fontSize="10" textAnchor="end">Now</text>
                     <text x={padLeft - 25} y={15} fill="#38bdf8" fontSize="10" fontWeight="700">DO (mg/L)</text>
 
-                    {/* Active Line Stream / Baseline */}
                     <polyline
                       points={points}
                       fill="none"
@@ -436,7 +521,7 @@ export default function Dashboard({ onLogout }: DashboardProps) {
               </div>
             </div>
 
-            {/* RAW TELEMETRY DATABASE STREAM TABLE WITH PREDICTED DO */}
+            {/* RAW TELEMETRY DATABASE STREAM TABLE */}
             <div style={styles.panelBoxFullWidth}>
               <div style={styles.panelHeaderRow}>
                 <div style={styles.flexHeader}>
@@ -700,14 +785,7 @@ const styles: Record<string, React.CSSProperties> = {
   indexBadge: { color: '#64748b', fontSize: '12px', fontWeight: '600' },
   refreshBtn: { display: 'flex', alignItems: 'center', gap: '6px', backgroundColor: '#f1f5f9', border: '1px solid #cbd5e1', padding: '6px 12px', borderRadius: '8px', cursor: 'pointer', fontSize: '12px', fontWeight: '600', color: '#334155' },
   cryptoBadge: { display: 'flex', alignItems: 'center', padding: '4px 10px', borderRadius: '20px', fontSize: '12px', fontWeight: '600' },
-  mapCanvas: { height: '260px', backgroundColor: '#f8fafc', borderRadius: '12px', position: 'relative', overflow: 'hidden' },
-  emptyState: { display: 'flex', height: '100%', alignItems: 'center', justifyContent: 'center', color: '#94a3b8', fontSize: '13px', fontWeight: '600' },
-  radarRing1: { position: 'absolute', width: '120px', height: '120px', borderRadius: '50%', border: '1px dashed #cbd5e1', top: '50%', left: '50%', transform: 'translate(-50%, -50%)' },
-  radarRing2: { position: 'absolute', width: '220px', height: '220px', borderRadius: '50%', border: '1px solid #e2e8f0', top: '50%', left: '50%', transform: 'translate(-50%, -50%)' },
-  floaterInteractiveBubble: { position: 'absolute', background: 'transparent', border: 'none', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px' },
-  colorCircleNode: { width: '38px', height: '38px', borderRadius: '50%', border: '2px solid', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#ffffff' },
-  innerCoreRadarDot: { width: '10px', height: '10px', borderRadius: '50%' },
-  bubbleTextLabel: { fontSize: '11px', color: '#475569', fontWeight: '600' },
+  mapCanvas: { height: '260px', backgroundColor: '#f8fafc', borderRadius: '12px', position: 'relative', overflow: 'hidden', border: '1px solid #e2e8f0' },
   chartMockCanvas: { height: '260px', backgroundColor: '#0b1120', borderRadius: '12px', position: 'relative', overflow: 'hidden' },
   svgGraphLine: { width: '100%', height: '100%', position: 'absolute', top: 0, left: 0, zIndex: 2 },
   chartWatermarkGrid: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundImage: `linear-gradient(rgba(30,41,59,0.5) 1px, transparent 1px), linear-gradient(90deg, rgba(30,41,59,0.5) 1px, transparent 1px)`, backgroundSize: '16px 16px', zIndex: 1 },
