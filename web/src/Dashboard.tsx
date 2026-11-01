@@ -55,7 +55,7 @@ const FASTAPI_URL =
 const STALE_TIMEOUT_MS = 12 * 60 * 60 * 1000;
 
 // Coordinates for target field node location in CDO
-const DEFAULT_LAT = 8.4960;
+const DEFAULT_LAT = 8.4961;
 const DEFAULT_LNG = 124.6390;
 
 interface PredictionData {
