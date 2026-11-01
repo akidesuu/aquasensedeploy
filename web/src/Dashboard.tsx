@@ -35,9 +35,9 @@ const FASTAPI_URL =
 
 const STALE_TIMEOUT_MS = 12 * 60 * 60 * 1000;
 
-// Coordinates for King Fisher Wee Viralmultimedia Services Inc., Kauswagan, CDO
-const DEFAULT_LAT = 8.4972;
-const DEFAULT_LNG = 124.6367;
+// Coordinates for target field node location in CDO
+const DEFAULT_LAT = 8.496141137486907;
+const DEFAULT_LNG = 124.63905096785479;
 
 interface PredictionData {
   predicted_do: number | string;
@@ -84,7 +84,7 @@ export default function Dashboard({ onLogout }: DashboardProps) {
   const [floaters, setFloaters] = useState<FloaterNode[]>([]);
   const [rawTelemetryList, setRawTelemetryList] = useState<TelemetryRecord[]>([]);
 
-  // Ref to hold current map instance
+  // Ref to hold current map instance and marker
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
   const mapInstanceRef = useRef<any>(null);
   const markerRef = useRef<any>(null);
@@ -94,7 +94,7 @@ export default function Dashboard({ onLogout }: DashboardProps) {
   const isAccountManagementTab = ['accounts', 'account-management', 'accountmanagement', 'users', 'user-management', 'usermanagement'].includes(normTab);
 
   const fetchNodePrediction = useCallback(async (node: FloaterNode) => {
-    // If node is offline, force 0.00 metrics immediately without calling API
+    // If node is offline or zeroed out, force 0.00 metrics immediately
     if (node.status === 'Offline' || node.metrics.ph === 0) {
       setNodePrediction('0.00');
       setModalHistory([0, 0, 0, 0]);
@@ -246,11 +246,57 @@ export default function Dashboard({ onLogout }: DashboardProps) {
     }
   };
 
-  // Map Setup Effect - Ensures map script loads cleanly and renders without blank canvas
+  // Immediate and Reliable Map Setup Effect
   useEffect(() => {
     if (activeTab !== 'dashboard') return;
 
     let isMounted = true;
+    let resizeObserver: ResizeObserver | null = null;
+
+    const initMap = () => {
+      if (!mapContainerRef.current || !window.L) return;
+
+      if (mapInstanceRef.current) {
+        mapInstanceRef.current.remove();
+        mapInstanceRef.current = null;
+      }
+
+      const map = window.L.map(mapContainerRef.current, {
+        center: [DEFAULT_LAT, DEFAULT_LNG],
+        zoom: 16,
+        zoomControl: true
+      });
+
+      window.L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+        attribution: '© AquaSense GIS | OpenStreetMap'
+      }).addTo(map);
+
+      mapInstanceRef.current = map;
+
+      // Double-trigger layout calculations to ensure first-load render works cleanly
+      requestAnimationFrame(() => {
+        if (mapInstanceRef.current) {
+          mapInstanceRef.current.invalidateSize();
+        }
+      });
+
+      setTimeout(() => {
+        if (mapInstanceRef.current) {
+          mapInstanceRef.current.invalidateSize();
+        }
+      }, 250);
+
+      // ResizeObserver forces Leaflet to refresh tile bounds when CSS containers settle
+      if (mapContainerRef.current) {
+        resizeObserver = new ResizeObserver(() => {
+          if (mapInstanceRef.current) {
+            mapInstanceRef.current.invalidateSize();
+          }
+        });
+        resizeObserver.observe(mapContainerRef.current);
+      }
+    };
 
     const loadLeafletScript = () => {
       if (window.L) {
@@ -280,42 +326,17 @@ export default function Dashboard({ onLogout }: DashboardProps) {
             clearInterval(checkL);
             if (isMounted) initMap();
           }
-        }, 100);
+        }, 50);
       }
-    };
-
-    const initMap = () => {
-      if (!mapContainerRef.current || !window.L) return;
-
-      if (mapInstanceRef.current) {
-        mapInstanceRef.current.remove();
-        mapInstanceRef.current = null;
-      }
-
-      const map = window.L.map(mapContainerRef.current, {
-        center: [DEFAULT_LAT, DEFAULT_LNG],
-        zoom: 16,
-        zoomControl: true
-      });
-
-      window.L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        maxZoom: 19,
-        attribution: '© AquaSense GIS | OpenStreetMap'
-      }).addTo(map);
-
-      mapInstanceRef.current = map;
-
-      setTimeout(() => {
-        if (mapInstanceRef.current) {
-          mapInstanceRef.current.invalidateSize();
-        }
-      }, 200);
     };
 
     loadLeafletScript();
 
     return () => {
       isMounted = false;
+      if (resizeObserver) {
+        resizeObserver.disconnect();
+      }
       if (mapInstanceRef.current) {
         mapInstanceRef.current.remove();
         mapInstanceRef.current = null;
@@ -323,7 +344,7 @@ export default function Dashboard({ onLogout }: DashboardProps) {
     };
   }, [activeTab]);
 
-  // Marker Updater Effect - Updates marker pin position and color when state changes
+  // Marker Updater Effect
   useEffect(() => {
     if (activeTab !== 'dashboard' || !mapInstanceRef.current || !window.L) return;
 
