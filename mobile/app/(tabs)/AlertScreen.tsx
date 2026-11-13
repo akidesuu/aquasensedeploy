@@ -8,6 +8,8 @@ import {
   ActivityIndicator,
   RefreshControl,
   Platform,
+  Modal,
+  TextInput,
 } from 'react-native';
 import {
   AlertTriangle,
@@ -15,7 +17,8 @@ import {
   CheckCircle2,
   Bell,
   Clock,
-  Trash2,
+  Sliders,
+  X,
 } from 'lucide-react-native';
 
 export interface SystemAlert {
@@ -36,9 +39,8 @@ interface AlertScreenProps {
   onAlertsChange?: (alerts: SystemAlert[]) => void;
 }
 
-// Set host IP for local network development
 const SERVER_IP: string = "192.168.18.21";
-const API_BASE_URL = Platform.OS === 'android' && (SERVER_IP as string) === 'localhost' 
+const API_BASE_URL = Platform.OS === 'android' && SERVER_IP === 'localhost' 
   ? "http://10.0.2.2:8000" 
   : `http://${SERVER_IP}:8000`;
 
@@ -56,36 +58,14 @@ const DEFAULT_ALERTS: SystemAlert[] = [
   },
   {
     id: 'alt-2',
-    deviceId: 'ESP32_POND_03',
-    deviceName: 'Floater 3',
-    location: 'Pond B North',
-    severity: 'warning',
-    title: 'Elevated Water Temperature',
-    message: 'Temperature spike detected at 29.1°C. Monitor thermal conditions.',
-    timestamp: '14 mins ago',
-    isResolved: false,
-  },
-  {
-    id: 'alt-3',
     deviceId: 'ESP32_POND_01',
     deviceName: 'Floater 1',
     location: 'Pond A Alpha',
-    severity: 'info',
-    title: 'Routine Battery Notification',
-    message: 'Battery level dropped below 85%. Solar charging active.',
-    timestamp: '1 hour ago',
-    isResolved: true,
-  },
-  {
-    id: 'alt-4',
-    deviceId: 'ESP32_POND_04',
-    deviceName: 'Floater 4',
-    location: 'Pond C South',
     severity: 'warning',
-    title: 'High Turbidity Detected',
-    message: 'Turbidity spiked to 18.4 NTU after water intake.',
-    timestamp: '3 hours ago',
-    isResolved: true,
+    title: 'Moderate DO Decline',
+    message: 'Predicted DO level dropped to 3.8 mg/L approaching critical threshold.',
+    timestamp: '15 mins ago',
+    isResolved: false,
   },
 ];
 
@@ -131,7 +111,6 @@ const AlertCard = memo(
           item.isResolved && styles.resolvedCardStyle,
         ]}
       >
-        {/* TOP META ROW */}
         <View style={styles.alertCardHeader}>
           <View style={styles.headerLeftGroup}>
             <View style={[styles.severityBadge, { backgroundColor: badgeBg }]}>
@@ -150,7 +129,6 @@ const AlertCard = memo(
             <TouchableOpacity
               onPress={() => onSelectDevice?.(item.deviceId)}
               accessibilityRole="button"
-              accessibilityLabel={`Filter by device ${item.deviceName}`}
             >
               <Text style={styles.deviceNameLink} numberOfLines={1}>
                 {item.deviceName} • {item.location}
@@ -164,11 +142,9 @@ const AlertCard = memo(
           </View>
         </View>
 
-        {/* CONTENT BODY */}
         <Text style={styles.alertTitleText}>{item.title}</Text>
         <Text style={styles.alertMessageText}>{item.message}</Text>
 
-        {/* FOOTER ACTIONS */}
         <View style={styles.alertCardFooter}>
           <TouchableOpacity
             style={[
@@ -178,9 +154,6 @@ const AlertCard = memo(
             onPress={() => onToggleResolve(item.id)}
             accessibilityRole="checkbox"
             accessibilityState={{ checked: item.isResolved }}
-            accessibilityLabel={`Mark ${item.title} as ${
-              item.isResolved ? 'unresolved' : 'resolved'
-            }`}
           >
             <CheckCircle2
               size={14}
@@ -209,11 +182,13 @@ export default function AlertScreen({
   onAlertsChange,
 }: AlertScreenProps) {
   const [alertList, setAlertList] = useState<SystemAlert[]>(alerts || DEFAULT_ALERTS);
-  const [filter, setFilter] = useState<'all' | 'unresolved' | 'critical'>('all');
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
 
-  // Fetch alerts from backend `/api/alerts`
+  // Threshold Configuration States
+  const [doThreshold, setDoThreshold] = useState<string>('4.0');
+  const [isModalVisible, setIsModalVisible] = useState<boolean>(false);
+
   const fetchAlertsFromBackend = useCallback(async () => {
     try {
       const response = await fetch(`${API_BASE_URL}/api/alerts`);
@@ -265,13 +240,11 @@ export default function AlertScreen({
     const previousState = targetAlert.isResolved;
     const newResolvedState = !previousState;
 
-    // Apply optimistic update
     const updated = alertList.map((item) =>
       item.id === id ? { ...item, isResolved: newResolvedState } : item
     );
     updateAlerts(updated);
 
-    // Sync resolution status with backend with automatic rollback on error
     try {
       const response = await fetch(`${API_BASE_URL}/api/alerts/${id}/resolve`, {
         method: 'PUT',
@@ -284,8 +257,6 @@ export default function AlertScreen({
       }
     } catch (err) {
       console.warn(`Failed to sync resolve status for alert ${id}, rolling back:`, err);
-      
-      // Revert state back to original
       const rolledBack = alertList.map((item) =>
         item.id === id ? { ...item, isResolved: previousState } : item
       );
@@ -293,41 +264,17 @@ export default function AlertScreen({
     }
   };
 
-  const clearResolved = () => {
-    const updated = alertList.filter((item) => !item.isResolved);
-    updateAlerts(updated);
-  };
-
   const handleRefresh = () => {
     setIsRefreshing(true);
     fetchAlertsFromBackend();
   };
 
-  // Filtered Alert List memoization
-  const filteredAlerts = useMemo(() => {
-    return alertList.filter((item) => {
-      if (filter === 'unresolved') return !item.isResolved;
-      if (filter === 'critical') return item.severity === 'critical';
-      return true;
-    });
-  }, [alertList, filter]);
+  const handleSaveThreshold = () => {
+    setIsModalVisible(false);
+  };
 
-  // Aggregation counts memoization
-  const counts = useMemo(() => {
-    let critical = 0;
-    let warning = 0;
-    let resolved = 0;
-
-    alertList.forEach((a) => {
-      if (a.isResolved) {
-        resolved++;
-      } else {
-        if (a.severity === 'critical') critical++;
-        if (a.severity === 'warning') warning++;
-      }
-    });
-
-    return { critical, warning, resolved };
+  const activeAlerts = useMemo(() => {
+    return alertList.filter((item) => !item.isResolved);
   }, [alertList]);
 
   return (
@@ -338,104 +285,20 @@ export default function AlertScreen({
         <RefreshControl refreshing={isRefreshing} onRefresh={handleRefresh} tintColor="#0284c7" />
       }
     >
-      {/* HEADER STATS SUMMARY */}
-      <View style={styles.statsRow}>
-        <View style={[styles.statCard, { borderLeftColor: '#ef4444' }]}>
-          <View style={styles.statHeader}>
-            <AlertTriangle size={16} color="#ef4444" />
-            <Text style={styles.statCardTitle}>Critical</Text>
-          </View>
-          <Text style={[styles.statCardValue, { color: '#ef4444' }]}>
-            {counts.critical}
-          </Text>
+      {/* HEADER BAR WITH THRESHOLD CONFIG BUTTON */}
+      <View style={styles.headerBar}>
+        <View>
+          <Text style={styles.screenHeaderTitle}>System Notifications</Text>
+          <Text style={styles.screenHeaderSub}>Active Trigger Limit: ≤ {doThreshold} mg/L DO</Text>
         </View>
 
-        <View style={[styles.statCard, { borderLeftColor: '#f59e0b' }]}>
-          <View style={styles.statHeader}>
-            <AlertCircle size={16} color="#f59e0b" />
-            <Text style={styles.statCardTitle}>Warnings</Text>
-          </View>
-          <Text style={[styles.statCardValue, { color: '#f59e0b' }]}>
-            {counts.warning}
-          </Text>
-        </View>
-
-        <View style={[styles.statCard, { borderLeftColor: '#10b981' }]}>
-          <View style={styles.statHeader}>
-            <CheckCircle2 size={16} color="#10b981" />
-            <Text style={styles.statCardTitle}>Resolved</Text>
-          </View>
-          <Text style={[styles.statCardValue, { color: '#10b981' }]}>
-            {counts.resolved}
-          </Text>
-        </View>
-      </View>
-
-      {/* FILTER TABS & CLEAR ACTION */}
-      <View style={styles.filterBar}>
-        <View style={styles.tabGroup}>
-          <TouchableOpacity
-            style={[styles.filterChip, filter === 'all' && styles.activeFilterChip]}
-            onPress={() => setFilter('all')}
-            accessibilityRole="button"
-            accessibilityState={{ selected: filter === 'all' }}
-          >
-            <Text
-              style={[
-                styles.filterChipText,
-                filter === 'all' && styles.activeFilterChipText,
-              ]}
-            >
-              All ({alertList.length})
-            </Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[
-              styles.filterChip,
-              filter === 'unresolved' && styles.activeFilterChip,
-            ]}
-            onPress={() => setFilter('unresolved')}
-            accessibilityRole="button"
-            accessibilityState={{ selected: filter === 'unresolved' }}
-          >
-            <Text
-              style={[
-                styles.filterChipText,
-                filter === 'unresolved' && styles.activeFilterChipText,
-              ]}
-            >
-              Active
-            </Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[
-              styles.filterChip,
-              filter === 'critical' && styles.activeFilterChip,
-            ]}
-            onPress={() => setFilter('critical')}
-            accessibilityRole="button"
-            accessibilityState={{ selected: filter === 'critical' }}
-          >
-            <Text
-              style={[
-                styles.filterChipText,
-                filter === 'critical' && styles.activeFilterChipText,
-              ]}
-            >
-              Critical
-            </Text>
-          </TouchableOpacity>
-        </View>
-
-        <TouchableOpacity
-          style={styles.clearBtn}
-          onPress={clearResolved}
-          accessibilityRole="button"
-          accessibilityLabel="Clear resolved alerts"
+        <TouchableOpacity 
+          style={styles.thresholdBtn}
+          onPress={() => setIsModalVisible(true)}
+          activeOpacity={0.8}
         >
-          <Trash2 size={16} color="#64748b" />
+          <Sliders size={16} color="#ffffff" />
+          <Text style={styles.thresholdBtnText}>Configure</Text>
         </TouchableOpacity>
       </View>
 
@@ -446,16 +309,16 @@ export default function AlertScreen({
             <ActivityIndicator size="small" color="#0284c7" />
             <Text style={styles.emptyStateTitle}>Syncing AquaSense alerts...</Text>
           </View>
-        ) : filteredAlerts.length === 0 ? (
+        ) : activeAlerts.length === 0 ? (
           <View style={styles.emptyStateContainer}>
             <Bell size={32} color="#cbd5e1" />
-            <Text style={styles.emptyStateTitle}>No alerts match this filter</Text>
+            <Text style={styles.emptyStateTitle}>No Active Alerts</Text>
             <Text style={styles.emptyStateSubtext}>
-              All telemetry parameters are operating within safe margins.
+              All parameters are operating within your configured Dissolved Oxygen safety margin.
             </Text>
           </View>
         ) : (
-          filteredAlerts.map((item) => (
+          activeAlerts.map((item) => (
             <AlertCard
               key={item.id}
               item={item}
@@ -465,6 +328,48 @@ export default function AlertScreen({
           ))
         )}
       </View>
+
+      {/* THRESHOLD ADJUSTMENT MODAL */}
+      <Modal
+        animationType="fade"
+        transparent={true}
+        visible={isModalVisible}
+        onRequestClose={() => setIsModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContentCard}>
+            <View style={styles.modalHeaderRow}>
+              <Text style={styles.modalTitleText}>DO Trigger Threshold</Text>
+              <TouchableOpacity onPress={() => setIsModalVisible(false)}>
+                <X size={20} color="#64748b" />
+              </TouchableOpacity>
+            </View>
+
+            <Text style={styles.modalBodyText}>
+              Set the minimum Predicted Dissolved Oxygen (mg/L) level below which critical alerts and notifications will trigger.
+            </Text>
+
+            <View style={styles.inputWrapper}>
+              <TextInput
+                style={styles.textInput}
+                keyboardType="numeric"
+                value={doThreshold}
+                onChangeText={setDoThreshold}
+                placeholder="4.0"
+              />
+              <Text style={styles.inputUnit}>mg/L</Text>
+            </View>
+
+            <TouchableOpacity 
+              style={styles.modalSaveButton}
+              onPress={handleSaveThreshold}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.modalSaveButtonText}>Save Threshold Limit</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </ScrollView>
   );
 }
@@ -474,67 +379,40 @@ const styles = StyleSheet.create({
     padding: 16,
     paddingBottom: 110,
   },
-  statsRow: {
-    flexDirection: 'row',
-    gap: 10,
-    marginBottom: 16,
-  },
-  statCard: {
-    flex: 1,
-    backgroundColor: '#ffffff',
-    borderRadius: 12,
-    padding: 12,
-    borderLeftWidth: 4,
-    elevation: 2,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.04,
-    shadowRadius: 3,
-  },
-  statHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  statCardTitle: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: '#64748b',
-  },
-  statCardValue: {
-    fontSize: 20,
-    fontWeight: '800',
-    marginTop: 4,
-  },
-  filterBar: {
+  headerBar: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 14,
+    marginBottom: 16,
+    backgroundColor: '#ffffff',
+    padding: 16,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
   },
-  tabGroup: {
-    flexDirection: 'row',
-    gap: 8,
+  screenHeaderTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#0f172a',
   },
-  filterChip: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 20,
-    backgroundColor: '#e2e8f0',
-  },
-  activeFilterChip: {
-    backgroundColor: '#0284c7',
-  },
-  filterChipText: {
+  screenHeaderSub: {
     fontSize: 12,
-    fontWeight: '600',
-    color: '#475569',
+    color: '#64748b',
+    marginTop: 2,
   },
-  activeFilterChipText: {
+  thresholdBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#0284c7',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 10,
+  },
+  thresholdBtnText: {
     color: '#ffffff',
-  },
-  clearBtn: {
-    padding: 8,
+    fontSize: 13,
+    fontWeight: '700',
   },
   listContainer: {
     gap: 12,
@@ -650,5 +528,75 @@ const styles = StyleSheet.create({
     color: '#94a3b8',
     textAlign: 'center',
     paddingHorizontal: 20,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(15, 23, 42, 0.6)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  modalContentCard: {
+    backgroundColor: '#ffffff',
+    borderRadius: 24,
+    padding: 24,
+    width: '100%',
+    maxWidth: 340,
+    elevation: 10,
+    shadowColor: '#0f172a',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.2,
+    shadowRadius: 15,
+  },
+  modalHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  modalTitleText: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#0f172a',
+  },
+  modalBodyText: {
+    fontSize: 13,
+    color: '#64748b',
+    lineHeight: 18,
+    marginBottom: 20,
+  },
+  inputWrapper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#f1f5f9',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#cbd5e1',
+    paddingHorizontal: 16,
+    marginBottom: 24,
+  },
+  textInput: {
+    flex: 1,
+    height: 48,
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#0f172a',
+  },
+  inputUnit: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#64748b',
+  },
+  modalSaveButton: {
+    backgroundColor: '#0284c7',
+    borderRadius: 12,
+    height: 48,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalSaveButtonText: {
+    color: '#ffffff',
+    fontSize: 15,
+    fontWeight: '700',
   },
 });
