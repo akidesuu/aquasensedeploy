@@ -11,3 +11,4 @@ keras>=2.10.0
 jinja2>=3.0.0
 scikit-learn
 certifi>=2023.7.22
+PyJWT>=2.8.0
