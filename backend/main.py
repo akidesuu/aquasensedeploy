@@ -198,8 +198,8 @@ def get_current_user(
 
 def require_super_admin(current_user: dict = Depends(get_current_user)) -> dict:
     """Strict dependency restricting access exclusively to Super Admin accounts."""
-    role = str(current_user.get("role", "")).strip()
-    if role != "Super Admin":
+    role = str(current_user.get("role", "")).strip().lower()
+    if role != "super admin":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Access Denied: Only Super Administrators are authorized to access this resource.",
@@ -208,10 +208,7 @@ def require_super_admin(current_user: dict = Depends(get_current_user)) -> dict:
 
 
 def _run_hybrid_inference(buffer_records: list) -> float:
-    """Feature pipeline to construct all 15 engineered features on live buffer data."""
     df_buf = pd.DataFrame(buffer_records)
-
-    # Standardize column naming
     df_buf = df_buf.rename(
         columns={
             "ph": "pH",
@@ -221,7 +218,6 @@ def _run_hybrid_inference(buffer_records: list) -> float:
         }
     )
 
-    # Cyclical Time Encoding
     if "timestamp" in df_buf.columns:
         timestamps = pd.to_datetime(df_buf["timestamp"])
         seconds = (
@@ -237,13 +233,11 @@ def _run_hybrid_inference(buffer_records: list) -> float:
         df_buf["sin_time"] = np.sin(2 * np.pi * sec / 86400.0)
         df_buf["cos_time"] = np.cos(2 * np.pi * sec / 86400.0)
 
-    # Target smoothing & lags
     df_buf["DO_smooth"] = df_buf["DO_raw"].rolling(window=5, min_periods=1).mean()
     df_buf["DO_lag1"] = df_buf["DO_smooth"].shift(1).fillna(df_buf["DO_smooth"])
     df_buf["DO_lag2"] = df_buf["DO_smooth"].shift(2).fillna(df_buf["DO_lag1"])
     df_buf["DO_lag3"] = df_buf["DO_smooth"].shift(3).fillna(df_buf["DO_lag2"])
 
-    # Rate of change & rolling features
     df_buf["temp_diff"] = df_buf["Temperature"].diff().fillna(0)
     df_buf["ph_diff"] = df_buf["pH"].diff().fillna(0)
     df_buf["temp_roll_mean"] = (
@@ -254,21 +248,13 @@ def _run_hybrid_inference(buffer_records: list) -> float:
         df_buf["Temperature"].rolling(10, min_periods=1).mean()
     )
     df_buf["ph_roll10_mean"] = df_buf["pH"].rolling(10, min_periods=1).mean()
-
-    # Interaction ratio
     df_buf["ph_temp_ratio"] = df_buf["pH"] / (df_buf["Temperature"] + 1e-5)
 
-    # Extract 15 features
     input_df_features = df_buf[FEATURE_COLUMNS]
-
-    # Scale features
     X_scaled = scaler_x.transform(input_df_features.values)
-    X_seq = np.expand_dims(X_scaled, axis=0)  # Shape: (1, 10, 15)
+    X_seq = np.expand_dims(X_scaled, axis=0)
 
-    # LSTM prediction output
     trend = lstm_model.predict(X_seq, verbose=0)
-
-    # Hybrid Random Forest prediction
     current_raw = X_scaled[-1].reshape(1, -1)
     hybrid_input = np.hstack((current_raw, trend))
 
@@ -287,7 +273,6 @@ async def predict_dissolved_oxygen(
     buf = device_buffers[device_id]
     buf.append(sensor_dict)
 
-    # Padding initial startup buffer to meet 10 sequence steps
     while len(buf) < TIME_STEPS:
         buf.insert(0, sensor_dict)
 
@@ -519,10 +504,10 @@ def login_user(payload: UserAuthPayload):
             detail="Invalid email or password configuration.",
         )
 
-    user_role = str(user_record.get("role", "")).strip()
+    # STRICT CASE-INSENSITIVE ROLE VERIFICATION
+    user_role = str(user_record.get("role", "")).strip().lower()
 
-    # STRICT BACKEND RESTRICTION: Block Farmers and Admins explicitly from dashboard access
-    if user_role != "Super Admin":
+    if user_role != "super admin":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Access Denied: Only Super Administrators are authorized to log in to this web dashboard.",
@@ -532,7 +517,7 @@ def login_user(payload: UserAuthPayload):
         subject=str(user_record.get("email")),
         extra_claims={
             "name": user_record.get("name", user_identifier),
-            "role": user_role,
+            "role": user_record.get("role", "Super Admin"),
         },
     )
 
@@ -540,7 +525,7 @@ def login_user(payload: UserAuthPayload):
         "status": "Authenticated",
         "username": user_record.get("name", user_identifier),
         "email": user_record.get("email", user_identifier),
-        "role": user_role,
+        "role": user_record.get("role", "Super Admin"),
         "token": token,
         "token_type": "bearer",
         "message": "Access granted to Super Admin control panel.",
@@ -548,7 +533,7 @@ def login_user(payload: UserAuthPayload):
 
 
 @app.get("/api/me")
-def get_me(current_user: dict = Depends(get_current_user)):
+def get_me(current_user: dict = Depends(require_super_admin)):
     return {
         "email": current_user.get("sub"),
         "role": current_user.get("role"),
@@ -1192,13 +1177,11 @@ def retrain_model_pipeline(file_path: str = "aquasense_db.raw_telemetry.xlsx", c
         mae = float(mean_absolute_error(y_actual, final_preds))
         r2 = float(r2_score(y_actual, final_preds))
 
-        # Save artifact files to disk
         new_lstm_model.save(LSTM_MODEL_FILE)
         joblib.dump(new_rf_model, RF_MODEL_FILE)
         joblib.dump(new_scaler_x, SCALER_X_FILE)
         joblib.dump(new_scaler_y, SCALER_Y_FILE)
 
-        # Reload into active memory
         lstm_model = new_lstm_model
         rf_model = new_rf_model
         scaler_x = new_scaler_x
