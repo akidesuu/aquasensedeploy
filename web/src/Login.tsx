@@ -37,7 +37,14 @@ export default function Login({ onLoginSuccess }: LoginProps) {
         throw new Error(data.detail || 'Authentication failed.');
       }
 
-      onLoginSuccess(data.username);
+      // STRICT ROLE VALIDATION: Check if the user is a Super Admin (case-insensitive)
+      const userRole = String(data.role || data.user?.role || '').trim().toLowerCase();
+      
+      if (userRole !== 'super admin') {
+        throw new Error('Access Denied: Only Super Administrators are authorized to access this dashboard.');
+      }
+
+      onLoginSuccess(data.username || data.user?.username || username);
     } catch (err: unknown) {
       if (err instanceof Error) {
         setError(err.message);
@@ -64,7 +71,7 @@ export default function Login({ onLoginSuccess }: LoginProps) {
             </svg>
           </div>
           <h2 style={styles.mainTitle}>AquaSense</h2>
-          <p style={styles.subTitle}>MANAGEMENT PORTAL</p>
+          <p style={styles.subTitle}>SUPER ADMIN PORTAL</p>
         </div>
 
         {/* Error Alert Box */}
@@ -78,7 +85,7 @@ export default function Login({ onLoginSuccess }: LoginProps) {
         {/* Interactive Form */}
         <form onSubmit={handleSubmit} style={styles.formContainer}>
           <div style={styles.inputGroup}>
-            <label style={styles.inputLabel}>ADMINISTRATION USER</label>
+            <label style={styles.inputLabel}>SUPERADMIN USERNAME</label>
             <div style={styles.inputWrapper}>
               <User size={16} color="#94a3b8" style={styles.inputIcon} />
               <input
@@ -87,7 +94,7 @@ export default function Login({ onLoginSuccess }: LoginProps) {
                 disabled={isLoading}
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
-                placeholder="Enter username"
+                placeholder="Enter superadmin username"
                 style={styles.textInput}
               />
             </div>
