@@ -197,8 +197,8 @@ def get_current_user(
 
 
 def require_super_admin(current_user: dict = Depends(get_current_user)) -> dict:
-    """Dependency that restricts access strictly to Super Admin accounts."""
-    role = current_user.get("role", "")
+    """Strict dependency restricting access exclusively to Super Admin accounts."""
+    role = str(current_user.get("role", "")).strip()
     if role != "Super Admin":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -519,13 +519,13 @@ def login_user(payload: UserAuthPayload):
             detail="Invalid email or password configuration.",
         )
 
-    user_role = user_record.get("role", "Farmer")
+    user_role = str(user_record.get("role", "")).strip()
 
-    # STRICT BACKEND RESTRICTION: Block anyone who is not a Super Admin from dashboard login
+    # STRICT BACKEND RESTRICTION: Block Farmers and Admins explicitly from dashboard access
     if user_role != "Super Admin":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Access Denied: Only Super Administrators are authorized to log in to this dashboard.",
+            detail="Access Denied: Only Super Administrators are authorized to log in to this web dashboard.",
         )
 
     token = create_access_token(
