@@ -52,6 +52,7 @@ export default function LoginScreen() {
       if (response.ok) {
         const userRole = (data.role || data.user?.role || '').toString().toLowerCase().trim();
 
+        // STRICT MOBILE APP RESTRICTION: Only allow 'farmer' accounts
         if (userRole === 'farmer') {
           // Pass full user details to AuthContext
           login({
@@ -62,6 +63,7 @@ export default function LoginScreen() {
           
           router.replace('/(tabs)');
         } else {
+          // Block Admin or Super Admin trying to use the mobile app
           setUnauthorizedModalVisible(true);
         }
       } else {
@@ -92,7 +94,7 @@ export default function LoginScreen() {
           <View style={styles.headerContainer}>
             <Text style={styles.logoText}>💧</Text>
             <Text style={styles.titleText}>AquaSense</Text>
-            <Text style={styles.subtitleText}>Water Quality Monitoring System</Text>
+            <Text style={styles.subtitleText}>Farmer Monitoring Mobile Portal</Text>
           </View>
 
           <View style={styles.formContainer}>
@@ -158,9 +160,9 @@ export default function LoginScreen() {
             <View style={styles.modalIconBadge}>
               <Text style={styles.modalIconText}>🚫</Text>
             </View>
-            <Text style={styles.modalTitleText}>Not Authorized</Text>
+            <Text style={styles.modalTitleText}>Access Restricted</Text>
             <Text style={styles.modalBodyText}>
-              Access is restricted to Farmer accounts only. Your account does not have permission to view this application.
+              This mobile application is strictly reserved for Farmer accounts only. Administrators and Super Admins must use the web management portal.
             </Text>
             <TouchableOpacity 
               style={styles.modalDismissButton}
