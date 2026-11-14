@@ -851,6 +851,57 @@ def delete_device(device_id: str, current_user: dict = Depends(require_super_adm
     return {"message": f"Device '{device_id}' deleted successfully."}
 
 
+class AlertResponse(BaseModel):
+    id: str
+    device_id: str
+    device_name: str
+    location: str
+    severity: str
+    title: str
+    message: str
+    timestamp: str
+    is_resolved: bool
+
+@app.get("/api/alerts", response_model=List[AlertResponse])
+async def get_alerts():
+    try:
+        # Fetch alerts from your MongoDB collection
+        alerts_cursor = db.alerts.find().sort("timestamp", -1)
+        alerts = await alerts_cursor.to_list(length=100)
+        
+        formatted_alerts = []
+        for alt in alerts:
+            formatted_alerts.append({
+                "id": str(alt.get("_id")),
+                "device_id": str(alt.get("device_id", "Unknown")),
+                "device_name": alt.get("device_name", "Floater"),
+                "location": alt.get("location", "AquaSense Pond"),
+                "severity": alt.get("severity", "info"),
+                "title": alt.get("title", "System Alert"),
+                "message": alt.get("message", "Telemetry anomaly recorded."),
+                "timestamp": alt.get("timestamp", "Just now"),
+                "is_resolved": bool(alt.get("is_resolved", False))
+            })
+        return formatted_alerts
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.put("/api/alerts/{alert_id}/resolve")
+async def resolve_alert(alert_id: str, data: dict):
+    from bson import ObjectId
+    try:
+        is_resolved = data.get("is_resolved", True)
+        result = await db.alerts.update_one(
+            {"_id": ObjectId(alert_id)},
+            {"$set": {"is_resolved": is_resolved}}
+        )
+        if result.matched_count == 0:
+            raise HTTPException(status_code=404, detail="Alert not found")
+        return {"status": "success", "is_resolved": is_resolved}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # ------------------------------------------------------------------------------ 
 # TELEMETRY, PREDICTION & RETRAINING ENDPOINTS
 # ------------------------------------------------------------------------------ 
