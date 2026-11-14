@@ -579,19 +579,52 @@ def delete_account(account_id: str, current_user: dict = Depends(require_super_a
 def get_all_devices(current_user: dict = Depends(require_super_admin)):
     if db is None:
         raise HTTPException(status_code=500, detail="Database connection is unavailable.")
+    
     cursor = db["devices"].find()
     devices = []
+    now_utc = datetime.now(timezone.utc)
+    
     for doc in cursor:
+        dev_id = doc.get("device_id") or doc.get("id", "")
+        
+        # Check latest telemetry packet to determine if device is Online or Offline
+        latest_tel = db["raw_telemetry"].find_one({"device_id": dev_id}, sort=[("_id", -1)])
+        
+        status_val = "Offline"
+        metrics = {"ph": 0.0, "temperature": 0.0, "turbidity": 0.0}
+        
+        if latest_tel:
+            tel_time = latest_tel.get("timestamp")
+            # If telemetry was received within the last 10 minutes, mark as Online
+            if tel_time:
+                if isinstance(tel_time, str):
+                    try:
+                        tel_time = datetime.fromisoformat(tel_time.replace("Z", "+00:00"))
+                    except:
+                        pass
+                if isinstance(tel_time, datetime):
+                    if (now_utc - tel_time).total_seconds() < 600:  # 10 minutes threshold
+                        status_val = "Online"
+            else:
+                status_val = "Online"
+                
+            metrics = {
+                "ph": latest_tel.get("ph", 7.0),
+                "temperature": latest_tel.get("temperature", 25.0),
+                "turbidity": latest_tel.get("turbidity", 0.0)
+            }
+        
         devices.append(
             DeviceResponse(
-                id=doc.get("id", doc.get("device_id", "")),
-                device_id=doc.get("device_id", ""),
-                name=doc.get("name", ""),
-                location=doc.get("location", "Unassigned"),
+                id=str(doc.get("id", dev_id)),
+                device_id=dev_id,
+                name=doc.get("name", "Unnamed Node"),
+                location=doc.get("location", "Unassigned Field Station"),
                 assignedUserId=doc.get("assignedUserId"),
                 assignedUserName=doc.get("assignedUserName"),
-                status=doc.get("status", "Online"),
-                color=doc.get("color", "#22c55e"),
+                status=status_val,
+                color="#22c55e" if status_val == "Online" else "#ef4444",
+                metrics=metrics if status_val == "Online" else None
             )
         )
     return devices
