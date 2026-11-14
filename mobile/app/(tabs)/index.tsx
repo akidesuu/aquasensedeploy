@@ -1,18 +1,18 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { 
-  StyleSheet, 
-  View, 
-  Text, 
-  ScrollView, 
-  TouchableOpacity, 
-  Dimensions, 
+import {
+  StyleSheet,
+  View,
+  Text,
+  ScrollView,
+  TouchableOpacity,
+  Dimensions,
   StatusBar,
   ActivityIndicator,
   RefreshControl,
   Platform
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router'; 
+import { useRouter } from 'expo-router';
 import {
   Bell,
   Home,
@@ -20,62 +20,63 @@ import {
   AlertCircle,
   User,
   ChevronLeft,
-  LogOut,
+  LogOut as Logout,
   ChevronRight,
   Activity,
   Wifi,
   WifiOff
 } from 'lucide-react-native';
-
-import { useAuth } from "../_layout";
+import { useAuth } from '../_layout';
 import AlertScreen from './AlertScreen';
 import ProfileScreen from './Profile';
 import ComponentsScreen, { FloaterDevice } from './ComponentsScreen';
 
 const { width } = Dimensions.get('window');
-
 const API_BASE_URL = 'https://aquasense-backend-osmi.onrender.com';
 
 export default function MobileDashboard() {
-  const router = useRouter(); 
-  const { logout, user } = useAuth(); // Destructure user context
-
+  const router = useRouter();
+  const { logout, user } = useAuth();
   const [currentScreen, setCurrentScreen] = useState<'home' | 'components' | 'alert' | 'profile'>('home');
   const [selectedDevice, setSelectedDevice] = useState<FloaterDevice | null>(null);
   const [sparklineData, setSparklineData] = useState<number[]>([6.2, 6.5, 6.1, 6.4, 6.3, 6.0, 6.4]);
-  
   const [devices, setDevices] = useState<FloaterDevice[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
   const [isConnected, setIsConnected] = useState<boolean>(true);
 
-  // Keep a ref to devices to access current value in fetchBackendData without triggering re-creation
   const devicesRef = useRef<FloaterDevice[]>([]);
   useEffect(() => {
     devicesRef.current = devices;
   }, [devices]);
 
-  // Fallback device list without ESP32_POND_02
-  const fallbackDevices: FloaterDevice[] = [
-    { id: 'ESP32_POND_01', name: 'Floater 1', location: 'Pond A Alpha', color: '#ef4444', metrics: { ph: 7.35, temperature: 28.2, turbidity: 14.1, battery: 85, predictedDo: 6.4 } },
-    { id: 'ESP32_POND_03', name: 'Floater 3', location: 'Pond B North', color: '#3b82f6', metrics: { ph: 7.45, temperature: 29.1, turbidity: 18.4, battery: 64, predictedDo: 5.9 } },
-    { id: 'ESP32_POND_04', name: 'Floater 4', location: 'Pond C South', color: '#f59e0b', metrics: { ph: 7.10, temperature: 26.8, turbidity: 13.0, battery: 50, predictedDo: 2.4 } }, 
-    { id: 'ESP32_POND_05', name: 'Floater 5', location: 'Pond B East', color: '#8b5cf6', metrics: { ph: 7.25, temperature: 27.9, turbidity: 12.5, battery: 73, predictedDo: 6.1 } },
-    { id: 'ESP32_POND_06', name: 'Floater 6', location: 'Pond C West', color: '#ec4899', metrics: { ph: 7.02, temperature: 28.4, turbidity: 15.2, battery: 88, predictedDo: 6.7 } }
-  ];
-
-  // 1. Fetch registered devices from `/api/devices`
+  // Fetch registered devices from `/api/devices` and filter strictly by user assignment
   const fetchDevices = useCallback(async () => {
     try {
       const response = await fetch(`${API_BASE_URL}/api/devices`);
       if (response.ok) {
         const rawDevices = await response.json();
-        
-        if (Array.isArray(rawDevices) && rawDevices.length > 0) {
-          // Filter out ESP32_POND_02 if present in database results
-          const validDevices = rawDevices.filter((dev: any) => (dev.device_id || dev.id) !== 'ESP32_POND_02');
-          
-          const formattedDevices: FloaterDevice[] = validDevices.map((dev: any) => ({
+        if (Array.isArray(rawDevices)) {
+          // Flexible filtering matching assignedUserId, email, or partial name strings
+          // Flexible filtering matching assignedUserId, email, or partial name strings
+const userAssignedDevices = rawDevices.filter((dev: any) => {
+  const assignedId = String(dev.assignedUserId || dev.assigned_user_id || '').trim();
+  const assignedName = String(dev.assignedUserName || '').trim().toLowerCase();
+  
+  // Safely grab user properties with fallback to 'any' type casting
+  const typedUser = user as any;
+  const currentUserId = String(typedUser?.id || typedUser?._id || '').trim();
+  const currentEmail = String(typedUser?.email || '').trim().toLowerCase();
+  const currentUserName = String(typedUser?.name || typedUser?.username || '').trim().toLowerCase();
+  
+  return (
+    (assignedId !== '' && currentUserId !== '' && assignedId === currentUserId) ||
+    (assignedId !== '' && currentEmail !== '' && assignedId.toLowerCase() === currentEmail) ||
+    (assignedName !== '' && currentUserName !== '' && (assignedName.includes(currentUserName) || currentUserName.includes(assignedName)))
+  );
+});
+
+          const formattedDevices: FloaterDevice[] = userAssignedDevices.map((dev: any) => ({
             id: dev.device_id || dev.id,
             name: dev.name || dev.device_id,
             location: dev.location || 'Unassigned Pond',
@@ -88,25 +89,26 @@ export default function MobileDashboard() {
               predictedDo: 6.5
             }
           }));
+
           setDevices(formattedDevices);
         } else {
-          setDevices(fallbackDevices);
+          setDevices([]);
         }
         setIsConnected(true);
       } else {
-        setDevices(fallbackDevices);
+        setDevices([]);
       }
     } catch (err) {
-      console.warn("Could not reach backend devices endpoint, defaulting to local state:", err);
+      console.warn("Could not reach backend devices endpoint:", err);
       setIsConnected(false);
-      setDevices((prev) => (prev.length > 0 ? prev : fallbackDevices));
+      setDevices([]);
     } finally {
       setIsLoading(false);
       setIsRefreshing(false);
     }
-  }, []);
+  }, [user]);
 
-  // 2. Fetch latest telemetry & ML prediction from backend
+  // Fetch latest telemetry & ML prediction from backend
   const fetchBackendData = useCallback(async () => {
     const currentDevices = devicesRef.current;
     if (currentDevices.length === 0) return;
@@ -118,8 +120,8 @@ export default function MobileDashboard() {
         if (predRes.ok) {
           const predData = await predRes.json();
           if (predData.predicted_do !== undefined) {
-            currentPrediction = typeof predData.predicted_do === 'number' 
-              ? predData.predicted_do 
+            currentPrediction = typeof predData.predicted_do === 'number'
+              ? predData.predicted_do
               : parseFloat(predData.predicted_do);
             setSparklineData((prev) => [...prev.slice(1), currentPrediction]);
           }
@@ -133,51 +135,46 @@ export default function MobileDashboard() {
         });
       }
 
-      // Query telemetry for valid devices only
       const updatedDevices = await Promise.all(
-        currentDevices
-          .filter((device) => device.id !== 'ESP32_POND_02')
-          .map(async (device) => {
-            try {
-              const telRes = await fetch(`${API_BASE_URL}/telemetry/latest?device_id=${device.id}`);
-              if (telRes.ok) {
-                const telData = await telRes.json();
-                setIsConnected(true);
-                return {
-                  ...device,
-                  metrics: {
-                    ...device.metrics,
-                    ph: telData.ph ?? device.metrics.ph,
-                    temperature: telData.temperature ?? device.metrics.temperature,
-                    turbidity: telData.turbidity ?? device.metrics.turbidity,
-                    predictedDo: telData.predicted_do ?? currentPrediction
-                  }
-                };
-              }
-            } catch (e) {
-              // Retain local telemetry values on request timeout
+        currentDevices.map(async (device) => {
+          try {
+            const telRes = await fetch(`${API_BASE_URL}/telemetry/latest?device_id=${device.id}`);
+            if (telRes.ok) {
+              const telData = await telRes.json();
+              setIsConnected(true);
+              return {
+                ...device,
+                metrics: {
+                  ...device.metrics,
+                  ph: telData.ph ?? device.metrics.ph,
+                  temperature: telData.temperature ?? device.metrics.temperature,
+                  turbidity: telData.turbidity ?? device.metrics.turbidity,
+                  predictedDo: telData.predicted_do ?? currentPrediction
+                }
+              };
             }
-
-            return {
-              ...device,
-              metrics: {
-                ...device.metrics,
-                ph: parseFloat((device.metrics.ph + (Math.random() * 0.04 - 0.02)).toFixed(2)),
-                temperature: parseFloat((device.metrics.temperature + (Math.random() * 0.1 - 0.05)).toFixed(1)),
-                turbidity: parseFloat((device.metrics.turbidity + (Math.random() * 0.2 - 0.1)).toFixed(1)),
-                battery: Math.max(0, device.metrics.battery - (Math.random() > 0.98 ? 1 : 0)),
-                predictedDo: currentPrediction
-              }
-            };
-          })
+          } catch (e) {
+            // Retain local telemetry values on request timeout
+          }
+          return {
+            ...device,
+            metrics: {
+              ...device.metrics,
+              ph: parseFloat((device.metrics.ph + (Math.random() * 0.04 - 0.02)).toFixed(2)),
+              temperature: parseFloat((device.metrics.temperature + (Math.random() * 0.1 - 0.05)).toFixed(1)),
+              turbidity: parseFloat((device.metrics.turbidity + (Math.random() * 0.2 - 0.1)).toFixed(1)),
+              battery: Math.max(0, device.metrics.battery - (Math.random() > 0.98 ? 1 : 0)),
+              predictedDo: currentPrediction
+            }
+          };
+        })
       );
-
       setDevices(updatedDevices);
     } catch (globalErr) {
       setIsConnected(false);
       console.log("Telemetry sync notice:", globalErr);
     }
-  }, []); // Empty dependencies ensure stable reference
+  }, []);
 
   useEffect(() => {
     fetchDevices();
@@ -189,7 +186,7 @@ export default function MobileDashboard() {
       const dataTicker = setInterval(fetchBackendData, 4000);
       return () => clearInterval(dataTicker);
     }
-  }, [devices.length > 0, fetchBackendData]);
+  }, [devices.length, fetchBackendData]);
 
   useEffect(() => {
     if (selectedDevice) {
@@ -217,7 +214,7 @@ export default function MobileDashboard() {
   };
 
   const handleLogout = () => {
-    logout(); 
+    logout();
   };
 
   return (
@@ -228,8 +225,8 @@ export default function MobileDashboard() {
       <View style={styles.brandingHeader}>
         <View style={styles.headerLeftBlock}>
           {currentScreen === 'components' && (
-            <TouchableOpacity 
-              style={styles.backArrowBtn} 
+            <TouchableOpacity
+              style={styles.backArrowBtn}
               onPress={() => { setCurrentScreen('home'); setSelectedDevice(null); }}
               hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
               activeOpacity={0.7}
@@ -247,36 +244,34 @@ export default function MobileDashboard() {
                 </Text>
               </View>
             </View>
-            {/* Dynamic user subtitle text */}
             <Text style={styles.brandSubtitleText}>
-              {selectedDevice 
-                ? `node: ${selectedDevice.name}` 
-                : user?.name 
-                  ? `welcome back, ${user.name}` 
-                  : 'welcome back, operator'}
+              {selectedDevice
+                ? `node: ${selectedDevice.name}`
+                : user?.name
+                ? `welcome back, ${user.name}`
+                : 'welcome back, operator'}
             </Text>
           </View>
         </View>
 
         {/* Action Tray */}
         <View style={styles.headerActionTray}>
-          <TouchableOpacity 
-            style={styles.actionIconBtn} 
-            onPress={() => setCurrentScreen('alert')} 
+          <TouchableOpacity
+            style={styles.actionIconBtn}
+            onPress={() => setCurrentScreen('alert')}
             activeOpacity={0.7}
             hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
           >
             <Bell size={18} color="#94a3b8" />
             <View style={styles.activeNotificationAlertDot} />
           </TouchableOpacity>
-          
-          <TouchableOpacity 
-            style={[styles.actionIconBtn, styles.logoutBtn]} 
-            onPress={handleLogout} 
+          <TouchableOpacity
+            style={[styles.actionIconBtn, styles.logoutBtn]}
+            onPress={handleLogout}
             activeOpacity={0.7}
             hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
           >
-            <LogOut size={18} color="#ef4444" />
+            <Logout size={18} color="#ef4444" />
           </TouchableOpacity>
         </View>
       </View>
@@ -287,25 +282,24 @@ export default function MobileDashboard() {
       ) : currentScreen === 'profile' ? (
         <ProfileScreen onLogout={handleLogout} />
       ) : (
-        <ScrollView 
+        <ScrollView
           contentContainerStyle={styles.mainContentScrollBody}
           showsVerticalScrollIndicator={false}
           refreshControl={
             <RefreshControl refreshing={isRefreshing} onRefresh={handleRefresh} tintColor="#0284c7" />
           }
         >
-          {/* HOME SCREEN */}
           {currentScreen === 'home' && (
             <View>
               {/* Quick Status Bar */}
               <View style={styles.summaryBar}>
                 <View style={styles.summaryItem}>
-                  {isConnected ? <Wifi size={14} color="#10b981" /> : <WifiOff size={14} color="#ef4444" />}
+                  {isConnected ? <Wifi size={14} color="#16a34a" /> : <WifiOff size={14} color="#ef4444" />}
                   <Text style={styles.summaryItemText}>{devices.length} Active Nodes</Text>
                 </View>
                 <View style={styles.summaryDivider} />
                 <View style={styles.summaryItem}>
-                  <Activity size={14} color="#3b82f6" />
+                  <Activity size={14} color="#0284c7" />
                   <Text style={styles.summaryItemText}>Sync 4s</Text>
                 </View>
               </View>
@@ -317,19 +311,24 @@ export default function MobileDashboard() {
                   <ActivityIndicator size="large" color="#0284c7" />
                   <Text style={styles.loaderText}>Connecting to AquaSense database...</Text>
                 </View>
+              ) : devices.length === 0 ? (
+                <View style={styles.emptyContainer}>
+                  <AlertCircle size={40} color="#f59e0b" />
+                  <Text style={styles.emptyTitle}>No ESP32 Device Found</Text>
+                  <Text style={styles.emptySub}>Contact the administrator</Text>
+                </View>
               ) : (
                 <View style={styles.deviceSelectionGrid}>
                   {devices.map((device) => {
                     const isWarning = device.metrics.predictedDo <= 4.0;
                     return (
-                      <TouchableOpacity 
-                        key={device.id} 
-                        onPress={() => handleDeviceClick(device)} 
+                      <TouchableOpacity
+                        key={device.id}
+                        onPress={() => handleDeviceClick(device)}
                         style={styles.interactiveDeviceCard}
                         activeOpacity={0.75}
                       >
                         <View style={[styles.cardAccentGlowBar, { backgroundColor: device.color }]} />
-                        
                         <View style={styles.deviceCardHeader}>
                           <Text style={styles.deviceCardIndexLabel}>{device.name}</Text>
                           <View style={[styles.statusBadge, isWarning ? styles.warningBadge : styles.normalBadge]}>
@@ -338,15 +337,14 @@ export default function MobileDashboard() {
                             </Text>
                           </View>
                         </View>
-
                         <Text style={styles.deviceCardLocationSubtext}>{device.location}</Text>
-
+                        
                         <View style={styles.cardMetricsPreview}>
                           <View>
                             <Text style={styles.metricLabel}>Pred. DO</Text>
                             <Text style={[styles.metricValue, { color: isWarning ? '#ef4444' : '#0f172a' }]}>
-                              {typeof device.metrics.predictedDo === 'number' 
-                                ? device.metrics.predictedDo.toFixed(1) 
+                              {typeof device.metrics.predictedDo === 'number'
+                                ? device.metrics.predictedDo.toFixed(1)
                                 : device.metrics.predictedDo}{' '}
                               <Text style={styles.unitText}>mg/L</Text>
                             </Text>
@@ -361,11 +359,10 @@ export default function MobileDashboard() {
             </View>
           )}
 
-          {/* COMPONENTS SCREEN */}
           {currentScreen === 'components' && selectedDevice && (
-            <ComponentsScreen 
-              selectedDevice={selectedDevice} 
-              sparklineData={sparklineData} 
+            <ComponentsScreen
+              selectedDevice={selectedDevice}
+              sparklineData={sparklineData}
             />
           )}
         </ScrollView>
@@ -373,8 +370,8 @@ export default function MobileDashboard() {
 
       {/* FOOTER TAB BAR DOCK */}
       <View style={styles.footerTabBarDock}>
-        <TouchableOpacity 
-          style={styles.tabBarItemButton} 
+        <TouchableOpacity
+          style={styles.tabBarItemButton}
           onPress={() => { setCurrentScreen('home'); setSelectedDevice(null); }}
           activeOpacity={0.7}
         >
@@ -384,8 +381,8 @@ export default function MobileDashboard() {
           <Text style={[styles.tabBarItemButtonTextLabel, { color: currentScreen === 'home' ? '#0284c7' : '#64748b' }]}>Home</Text>
         </TouchableOpacity>
 
-        <TouchableOpacity 
-          style={styles.tabBarItemButton} 
+        <TouchableOpacity
+          style={styles.tabBarItemButton}
           onPress={() => { if (!selectedDevice && devices.length > 0) setSelectedDevice(devices[0]); setCurrentScreen('components'); }}
           activeOpacity={0.7}
         >
@@ -395,8 +392,8 @@ export default function MobileDashboard() {
           <Text style={[styles.tabBarItemButtonTextLabel, { color: currentScreen === 'components' ? '#0284c7' : '#64748b' }]}>Components</Text>
         </TouchableOpacity>
 
-        <TouchableOpacity 
-          style={styles.tabBarItemButton} 
+        <TouchableOpacity
+          style={styles.tabBarItemButton}
           onPress={() => setCurrentScreen('alert')}
           activeOpacity={0.7}
         >
@@ -406,8 +403,8 @@ export default function MobileDashboard() {
           <Text style={[styles.tabBarItemButtonTextLabel, { color: currentScreen === 'alert' ? '#0284c7' : '#64748b' }]}>Alert</Text>
         </TouchableOpacity>
 
-        <TouchableOpacity 
-          style={styles.tabBarItemButton} 
+        <TouchableOpacity
+          style={styles.tabBarItemButton}
           onPress={() => setCurrentScreen('profile')}
           activeOpacity={0.7}
         >
@@ -437,7 +434,7 @@ const styles = StyleSheet.create({
     borderBottomLeftRadius: 24,
     borderBottomRightRadius: 24,
     elevation: 10,
-    shadowColor: '#0f172a',
+    shadowColor: '#023172a',
     shadowOffset: { width: 0, height: 6 },
     shadowOpacity: 0.2,
     shadowRadius: 8,
@@ -582,6 +579,32 @@ const styles = StyleSheet.create({
     color: '#64748b',
     fontWeight: '500'
   },
+  emptyContainer: {
+    backgroundColor: '#ffffff',
+    borderRadius: 18,
+    padding: 32,
+    alignItems: 'center',
+    gap: 12,
+    marginTop: 10,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    elevation: 2,
+    shadowColor: '#0f172a',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.04,
+    shadowRadius: 6,
+  },
+  emptyTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#0f172a',
+  },
+  emptySub: {
+    fontSize: 14,
+    color: '#f59e0b',
+    textAlign: 'center',
+    fontWeight: '600',
+  },
   deviceSelectionGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -591,7 +614,7 @@ const styles = StyleSheet.create({
   interactiveDeviceCard: {
     backgroundColor: '#ffffff',
     borderRadius: 18,
-    width: (width - 48) / 2, 
+    width: (width - 48) / 2,
     position: 'relative',
     overflow: 'hidden',
     padding: 14,
