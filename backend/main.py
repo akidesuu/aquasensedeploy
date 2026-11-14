@@ -74,6 +74,7 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    "https://aquasensedeploy-gray.vercel.app",
 )
 
 #
