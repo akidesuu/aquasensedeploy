@@ -36,9 +36,19 @@ export default function ComponentsScreen({
   selectedDevice,
   sparklineData,
 }: ComponentsScreenProps) {
-  const isLowDo = selectedDevice.metrics.predictedDo <= 4.0;
+  // Fallback metrics protection matching index.tsx defaults
+  const metrics = selectedDevice?.metrics || {
+    ph: 7.20,
+    temperature: 28.0,
+    turbidity: 12.0,
+    battery: 85,
+    predictedDo: 6.5
+  };
+
+  const isLowDo = metrics.predictedDo <= 4.0;
 
   const getPointsStr = () => {
+    if (!sparklineData || sparklineData.length === 0) return '10,30 290,30';
     return sparklineData
       .map((val, idx) => `${idx * 45 + 10},${50 - (val - 2) * 8}`)
       .join(' ');
@@ -60,7 +70,7 @@ export default function ComponentsScreen({
               </View>
             </View>
             <Text style={styles.alertBannerBodyCopy}>
-              Predicted DO level reached minimum threshold ({selectedDevice.metrics.predictedDo.toFixed(1)} mg/L).
+              Predicted DO level reached minimum threshold ({metrics.predictedDo.toFixed(1)} mg/L).
             </Text>
           </View>
         </View>
@@ -81,7 +91,7 @@ export default function ComponentsScreen({
         </View>
 
         <Text style={styles.predictionCardPrimaryValue}>
-          {selectedDevice.metrics.predictedDo}{' '}
+          {typeof metrics.predictedDo === 'number' ? metrics.predictedDo.toFixed(2) : metrics.predictedDo}{' '}
           <Text style={{ fontSize: 18, fontWeight: '600', color: 'rgba(255,255,255,0.8)' }}>mg/L</Text>
         </Text>
 
@@ -119,7 +129,7 @@ export default function ComponentsScreen({
               <Text style={styles.brickLabelTitleText}>Temperature</Text>
             </View>
             <Text style={[styles.brickPrimaryValueText, { color: '#0f172a' }]}>
-              {selectedDevice.metrics.temperature}{' '}
+              {metrics.temperature}{' '}
               <Text style={styles.brickUnitText}>°C</Text>
             </Text>
           </View>
@@ -133,7 +143,7 @@ export default function ComponentsScreen({
               <Text style={styles.brickLabelTitleText}>Turbidity</Text>
             </View>
             <Text style={[styles.brickPrimaryValueText, { color: '#0f172a' }]}>
-              {selectedDevice.metrics.turbidity}{' '}
+              {metrics.turbidity}{' '}
               <Text style={styles.brickUnitText}>NTU</Text>
             </Text>
           </View>
@@ -147,7 +157,7 @@ export default function ComponentsScreen({
               <Text style={styles.brickLabelTitleText}>pH Level</Text>
             </View>
             <Text style={[styles.brickPrimaryValueText, { color: '#0f172a' }]}>
-              {selectedDevice.metrics.ph}
+              {metrics.ph}
             </Text>
           </View>
         </View>
@@ -157,12 +167,12 @@ export default function ComponentsScreen({
           <View style={styles.brickHeaderRow}>
             <View style={[
               styles.iconContainer, 
-              { backgroundColor: selectedDevice.metrics.battery <= 50 ? '#fff7ed' : '#f0fdf4' }
+              { backgroundColor: metrics.battery <= 50 ? '#fff7ed' : '#f0fdf4' }
             ]}>
               <Battery
                 size={16}
                 color={
-                  selectedDevice.metrics.battery <= 50 ? '#f97316' : '#16a34a'
+                  metrics.battery <= 50 ? '#f97316' : '#16a34a'
                 }
               />
             </View>
@@ -174,14 +184,14 @@ export default function ComponentsScreen({
               style={[
                 styles.batteryCellMeterInnerFillProgress,
                 {
-                  height: `${selectedDevice.metrics.battery}%`,
+                  height: `${metrics.battery}%`,
                   backgroundColor:
-                    selectedDevice.metrics.battery <= 50
+                    metrics.battery <= 50
                       ? 'rgba(249, 115, 22, 0.25)'
                       : 'rgba(34, 197, 94, 0.25)',
                   borderTopWidth: 2,
                   borderTopColor:
-                    selectedDevice.metrics.battery <= 50
+                    metrics.battery <= 50
                       ? '#f97316'
                       : '#22c55e',
                 },
@@ -189,7 +199,7 @@ export default function ComponentsScreen({
             />
             <Zap 
               size={18} 
-              color={selectedDevice.metrics.battery <= 50 ? '#f97316' : '#16a34a'} 
+              color={metrics.battery <= 50 ? '#f97316' : '#16a34a'} 
               style={{ marginBottom: 4 }} 
             />
             <Text
@@ -197,13 +207,13 @@ export default function ComponentsScreen({
                 styles.batteryPercentageDisplayValueText,
                 {
                   color:
-                    selectedDevice.metrics.battery <= 50
+                    metrics.battery <= 50
                       ? '#ea580c'
                       : '#15803d',
                 },
               ]}
             >
-              {selectedDevice.metrics.battery}%
+              {metrics.battery}%
             </Text>
             <Text style={styles.batterySubtext}>Li-Ion Cell</Text>
           </View>
@@ -231,7 +241,6 @@ export default function ComponentsScreen({
             <Text style={styles.livePulseStatusLabel}>LIVE</Text>
           </View>
         </View>
-
         <View style={styles.svgSparklineContainerCanvas}>
           <Svg height="100%" width="100%" viewBox="0 0 300 60">
             <Polyline

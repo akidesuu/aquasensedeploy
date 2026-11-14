@@ -50,43 +50,49 @@ export default function MobileDashboard() {
     devicesRef.current = devices;
   }, [devices]);
 
-  // Fetch registered devices from `/api/devices` and filter strictly by user assignment
+  // Fetch registered devices from `/api/devices` and display user's device regardless of online status
   const fetchDevices = useCallback(async () => {
     try {
       const response = await fetch(`${API_BASE_URL}/api/devices`);
       if (response.ok) {
         const rawDevices = await response.json();
         if (Array.isArray(rawDevices)) {
-          // Flexible filtering matching assignedUserId, email, or partial name strings
-          // Flexible filtering matching assignedUserId, email, or partial name strings
-const userAssignedDevices = rawDevices.filter((dev: any) => {
-  const assignedId = String(dev.assignedUserId || dev.assigned_user_id || '').trim();
-  const assignedName = String(dev.assignedUserName || '').trim().toLowerCase();
-  
-  // Safely grab user properties with fallback to 'any' type casting
-  const typedUser = user as any;
-  const currentUserId = String(typedUser?.id || typedUser?._id || '').trim();
-  const currentEmail = String(typedUser?.email || '').trim().toLowerCase();
-  const currentUserName = String(typedUser?.name || typedUser?.username || '').trim().toLowerCase();
-  
-  return (
-    (assignedId !== '' && currentUserId !== '' && assignedId === currentUserId) ||
-    (assignedId !== '' && currentEmail !== '' && assignedId.toLowerCase() === currentEmail) ||
-    (assignedName !== '' && currentUserName !== '' && (assignedName.includes(currentUserName) || currentUserName.includes(assignedName)))
-  );
-});
+          // Relaxed and robust filtering matching assignedUserId, email, or names (case-insensitive substring)
+          const userAssignedDevices = rawDevices.filter((dev: any) => {
+            const assignedId = String(dev.assignedUserId || dev.assigned_user_id || '').trim().toLowerCase();
+            const assignedName = String(dev.assignedUserName || dev.assigned_user_name || '').trim().toLowerCase();
+            
+            const typedUser = user as any;
+            const currentUserId = String(typedUser?.id || typedUser?._id || '').trim().toLowerCase();
+            const currentEmail = String(typedUser?.email || '').trim().toLowerCase();
+            const currentUserName = String(typedUser?.name || typedUser?.username || '').trim().toLowerCase();
+
+            // If no user context yet, show nothing
+            if (!currentUserId && !currentEmail && !currentUserName) return false;
+
+            // Match if IDs align, emails align, or if names overlap (e.g., "John Rey Nillama" matches "John")
+            const matchesId = assignedId !== '' && currentUserId !== '' && assignedId === currentUserId;
+            const matchesEmail = assignedId !== '' && currentEmail !== '' && assignedId === currentEmail;
+            const matchesName = assignedName !== '' && currentUserName !== '' && 
+              (assignedName.includes(currentUserName) || currentUserName.includes(assignedName));
+
+            // Fallback: If no specific user is assigned in DB yet, or if it matches any part of the name
+            const isUnassignedOrMatched = matchesId || matchesEmail || matchesName || assignedName === '' || assignedId === '';
+
+            return isUnassignedOrMatched;
+          });
 
           const formattedDevices: FloaterDevice[] = userAssignedDevices.map((dev: any) => ({
             id: dev.device_id || dev.id,
-            name: dev.name || dev.device_id,
-            location: dev.location || 'Unassigned Pond',
+            name: dev.name || dev.device_id || 'ESP32 Node',
+            location: dev.location || 'AquaSense Field Station',
             color: dev.color || '#22c55e',
             metrics: {
-              ph: 7.20,
-              temperature: 28.0,
-              turbidity: 12.0,
-              battery: 85,
-              predictedDo: 6.5
+              ph: dev.metrics?.ph ?? 7.20,
+              temperature: dev.metrics?.temperature ?? 28.0,
+              turbidity: dev.metrics?.turbidity ?? 12.0,
+              battery: dev.metrics?.battery ?? 85,
+              predictedDo: dev.metrics?.predictedDo ?? 6.5
             }
           }));
 
@@ -154,19 +160,9 @@ const userAssignedDevices = rawDevices.filter((dev: any) => {
               };
             }
           } catch (e) {
-            // Retain local telemetry values on request timeout
+            // Retain local telemetry values if device is offline
           }
-          return {
-            ...device,
-            metrics: {
-              ...device.metrics,
-              ph: parseFloat((device.metrics.ph + (Math.random() * 0.04 - 0.02)).toFixed(2)),
-              temperature: parseFloat((device.metrics.temperature + (Math.random() * 0.1 - 0.05)).toFixed(1)),
-              turbidity: parseFloat((device.metrics.turbidity + (Math.random() * 0.2 - 0.1)).toFixed(1)),
-              battery: Math.max(0, device.metrics.battery - (Math.random() > 0.98 ? 1 : 0)),
-              predictedDo: currentPrediction
-            }
-          };
+          return device;
         })
       );
       setDevices(updatedDevices);
@@ -315,7 +311,7 @@ const userAssignedDevices = rawDevices.filter((dev: any) => {
                 <View style={styles.emptyContainer}>
                   <AlertCircle size={40} color="#f59e0b" />
                   <Text style={styles.emptyTitle}>No ESP32 Device Found</Text>
-                  <Text style={styles.emptySub}>Contact the administrator</Text>
+                  <Text style={styles.emptySub}>Contact the administrators</Text>
                 </View>
               ) : (
                 <View style={styles.deviceSelectionGrid}>
