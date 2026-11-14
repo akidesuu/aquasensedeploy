@@ -67,8 +67,8 @@ const getAuthHeaders = () => {
 export default function DeviceManagement({
   devices: propDevices,
   accounts: propAccounts,
-  onAddDevice,
-  onEditDevice,
+  onAddDevice: _onAddDevice,   // Fixed unused warning
+  onEditDevice: _onEditDevice, // Fixed unused warning
   onRemoveDevice,
   onRebootDevice
 }: DeviceManagementProps) {
