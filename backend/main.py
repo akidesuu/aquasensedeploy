@@ -25,7 +25,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 
 #
-# 1. JWT CONFIGURATION[cite: 8]
+# 1. JWT CONFIGURATION
 #
 SECRET_KEY = os.getenv("JWT_SECRET_KEY", "your_32_character_secret_key_here_secure_enough")
 if not SECRET_KEY or len(SECRET_KEY) < 32:
@@ -36,7 +36,7 @@ ACCESS_TOKEN_EXPIRE_MINUTES = 60
 security = HTTPBearer(auto_error=False)
 
 #
-# ML MODEL CONFIGURATION & FEATURE SELECTION[cite: 9]
+# ML MODEL CONFIGURATION & FEATURE SELECTION
 #
 LSTM_MODEL_FILE = os.getenv("LSTM_MODEL_PATH", "lstm_model.keras")
 RF_MODEL_FILE = os.getenv("RF_MODEL_PATH", "rf_model.pkl")
@@ -63,7 +63,7 @@ FEATURE_COLUMNS = [
 ]
 
 #
-# 2. FASTAPI & CORS & TEMPLATES SETUP[cite: 10]
+# 2. FASTAPI & CORS & TEMPLATES SETUP
 #
 app = FastAPI(title="AquaSense Core & ML Pipeline API", version="2.0.0")
 templates = Jinja2Templates(directory="templates")
@@ -77,7 +77,7 @@ app.add_middleware(
 )
 
 #
-# 3. MONGODB ATLAS CONNECTION[cite: 10]
+# 3. MONGODB ATLAS CONNECTION
 #
 MONGO_URI = os.getenv(
     "MONGO_URI",
@@ -96,7 +96,7 @@ except Exception as e:
     db = None
 
 #
-# 4. LOAD MACHINE LEARNING ARTIFACTS[cite: 11]
+# 4. LOAD MACHINE LEARNING ARTIFACTS
 #
 def load_scaler(primary_path: str, fallback_path: str):
     if os.path.exists(primary_path):
@@ -117,7 +117,7 @@ else:
     print(">>>> Warning: ML model artifacts incomplete or missing. Run retraining pass to generate model files.")
 
 #
-# 5. SECURITY & JWT UTILITIES[cite: 11, 12, 13]
+# 5. SECURITY & JWT UTILITIES
 #
 def hash_password(password: str) -> str:
     password_bytes = password.encode("utf-8")
@@ -179,9 +179,15 @@ def get_current_user(
         )
 
 def require_super_admin(current_user: dict = Depends(get_current_user)) -> dict:
-    """Strict dependency restricting access exclusively to Super Admin accounts with case-insensitivity."""
+    """Strict dependency ensuring account is a Super Admin based on DB or token record."""
+    email = current_user.get("sub")
     role = str(current_user.get("role", "")).strip().lower()
-    # Allow variations of super admin role strings
+    
+    if db is not None and email:
+        db_user = db["accounts"].find_one({"email": email.lower()})
+        if db_user:
+            role = str(db_user.get("role", "")).strip().lower()
+
     if role not in ["super admin", "super_admin", "superadmin"]:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -231,7 +237,7 @@ def _run_hybrid_inference(buffer_records: list) -> float:
     X_seq = np.expand_dims(X_scaled, axis=0)
     
     trend = lstm_model.predict(X_seq, verbose=0)
-    current_raw = X_scaled[-1].reshape(1, -1)  # Fixed syntax from extraction artifact
+    current_raw = X_scaled[-1].reshape(1, -1)
     hybrid_input = np.hstack((current_raw, trend))
     pred_scaled = rf_model.predict(hybrid_input)
     prediction = scaler_y.inverse_transform(pred_scaled.reshape(-1, 1))
@@ -253,7 +259,7 @@ async def predict_dissolved_oxygen(device_id: str, sensor_dict: dict) -> dict:
     }
 
 #
-# 6. PYDANTIC SCHEMAS & ENUMS[cite: 16, 17, 18]
+# 6. PYDANTIC SCHEMAS & ENUMS
 #
 class UserRole(str, Enum):
     SUPER_ADMIN = "Super Admin"
@@ -272,8 +278,8 @@ class TelemetryPayload(BaseModel):
     precipitation: Optional[float] = Field(0.0, json_schema_extra={"example": 0.0})
 
 class UserAuthPayload(BaseModel):
-    email: Optional[str] = Field(None, json_schema_extra={"example": "lennon@aquasense.com"})
-    username: Optional[str] = Field(None, json_schema_extra={"example": "Chavez"})
+    email: Optional[str] = Field(None, json_schema_extra={"example": "ajboy.pelias123@gmail.com"})
+    username: Optional[str] = Field(None, json_schema_extra={"example": "Ajboy Pelias"})
     password: str = Field(..., json_schema_extra={"example": "AquaSecure2026!"})
 
 class AccountCreatePayload(BaseModel):
@@ -306,14 +312,15 @@ class AccountResponse(BaseModel):
     createdAt: str
 
 class DeviceCreatePayload(BaseModel):
-    id: str = Field(..., json_schema_extra={"example": "ESP32_POND_01"})
-    device_id: str = Field(..., json_schema_extra={"example": "ESP32_POND_01"})
-    name: str = Field(..., json_schema_extra={"example": "Ponderosa Node 1"})
-    location: str = Field(..., json_schema_extra={"example": "Zone 3, BonBon Pond"})
+    id: Optional[str] = Field(None, json_schema_extra={"example": "ESP32_POND_01"})
+    device_id: Optional[str] = Field(None, json_schema_extra={"example": "ESP32_POND_01"})
+    name: Optional[str] = Field("Unnamed Node", json_schema_extra={"example": "Ponderosa Node 1"})
+    location: Optional[str] = Field("Unassigned Field Station", json_schema_extra={"example": "Zone 3, BonBon Pond"})
     assignedUserId: Optional[Union[str, int]] = Field(None, json_schema_extra={"example": "USR-001"})
+    assigned_user_id: Optional[Union[str, int]] = Field(None, json_schema_extra={"example": "USR-001"})
     assignedUserName: Optional[str] = Field(None, json_schema_extra={"example": "Akimitsu Admin"})
-    status: str = Field("Online", json_schema_extra={"example": "Online"})
-    color: str = Field("#22c55e", json_schema_extra={"example": "#22c55e"})
+    status: Optional[str] = Field("Offline", json_schema_extra={"example": "Offline"})
+    color: Optional[str] = Field("#22c55e", json_schema_extra={"example": "#22c55e"})
 
 class DeviceUpdatePayload(BaseModel):
     name: Optional[str] = None
@@ -334,9 +341,10 @@ class DeviceResponse(BaseModel):
     assignedUserName: Optional[str] = None
     status: str
     color: str
+    metrics: Optional[dict] = None
 
 #
-# 7. API ENDPOINTS[cite: 19]
+# 7. API ENDPOINTS
 #
 @app.get("/", response_class=HTMLResponse)
 async def root_check(request: Request):
@@ -345,7 +353,7 @@ async def root_check(request: Request):
     return HTMLResponse("<h2>AquaSense Core & ML API Active (Super Admin Dashboard Protected)</h2>")
 
 #
-# AUTHENTICATION ENDPOINTS[cite: 20, 21, 22]
+# AUTHENTICATION ENDPOINTS
 #
 @app.post("/auth/register", status_code=status.HTTP_201_CREATED)
 def register_user(payload: UserAuthPayload):
@@ -418,7 +426,6 @@ def login_user(payload: UserAuthPayload):
             detail="Invalid email or password configuration.",
         )
     
-    # FLEXIBLE CASE-INSENSITIVE ROLE VERIFICATION
     user_role = str(user_record.get("role", "")).strip().lower()
     if user_role not in ["super admin", "super_admin", "superadmin"]:
         raise HTTPException(
@@ -430,7 +437,7 @@ def login_user(payload: UserAuthPayload):
         subject=str(user_record.get("email")),
         extra_claims={
             "name": user_record.get("name", user_identifier),
-            "role": "Super Admin",  # Explicitly enforce standardized Super Admin casing
+            "role": "Super Admin",
         },
     )
     
@@ -454,7 +461,7 @@ def get_me(current_user: dict = Depends(require_super_admin)):
     }
 
 #
-# ACCOUNT MANAGEMENT ENDPOINTS (Super Admin Only)[cite: 22, 23, 24, 25, 26, 27]
+# ACCOUNT MANAGEMENT ENDPOINTS (Super Admin Only)
 #
 @app.get("/api/accounts", response_model=List[AccountResponse])
 @app.get("/api/accounts/", response_model=List[AccountResponse])
@@ -572,14 +579,13 @@ def delete_account(account_id: str, current_user: dict = Depends(require_super_a
     return {"message": f"Account '{account_id}' deleted successfully."}
 
 #
-# DEVICE MANAGEMENT ENDPOINTS (Super Admin Only)[cite: 27, 28, 29, 30, 31]
+# DEVICE MANAGEMENT ENDPOINTS (Super Admin Only)
 #
 @app.get("/api/devices", response_model=List[DeviceResponse])
 @app.get("/api/devices/", response_model=List[DeviceResponse])
 def get_all_devices(current_user: dict = Depends(require_super_admin)):
     if db is None:
         raise HTTPException(status_code=500, detail="Database connection is unavailable.")
-    
     cursor = db["devices"].find()
     devices = []
     now_utc = datetime.now(timezone.utc)
@@ -590,12 +596,11 @@ def get_all_devices(current_user: dict = Depends(require_super_admin)):
         # Check latest telemetry packet to determine if device is Online or Offline
         latest_tel = db["raw_telemetry"].find_one({"device_id": dev_id}, sort=[("_id", -1)])
         
-        status_val = "Offline"
-        metrics = {"ph": 0.0, "temperature": 0.0, "turbidity": 0.0}
+        status_val = doc.get("status", "Offline")
+        metrics = None
         
         if latest_tel:
             tel_time = latest_tel.get("timestamp")
-            # If telemetry was received within the last 10 minutes, mark as Online
             if tel_time:
                 if isinstance(tel_time, str):
                     try:
@@ -634,15 +639,45 @@ def get_all_devices(current_user: dict = Depends(require_super_admin)):
 def register_device(payload: DeviceCreatePayload, current_user: dict = Depends(require_super_admin)):
     if db is None:
         raise HTTPException(status_code=500, detail="Database connection is unavailable.")
-    existing = db["devices"].find_one({"device_id": payload.device_id})
-    if existing:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=f"Device with ID '{payload.device_id}' already exists.",
-        )
-    device_doc = payload.model_dump()
-    db["devices"].insert_one(device_doc)
-    return DeviceResponse(**device_doc)
+    
+    dev_id = payload.device_id or payload.id or f"ESP32_{int(datetime.now().timestamp())}"
+    assigned_uid = payload.assignedUserId or payload.assigned_user_id
+    
+    assigned_name = None
+    if assigned_uid:
+        account = db["accounts"].find_one({"id": str(assigned_uid)})
+        if account:
+            assigned_name = account.get("name")
+
+    device_doc = {
+        "id": dev_id,
+        "device_id": dev_id,
+        "name": payload.name or f"Node {dev_id}",
+        "location": payload.location or "Unassigned Field Station",
+        "assignedUserId": str(assigned_uid) if assigned_uid else None,
+        "assignedUserName": assigned_name,
+        "status": payload.status or "Offline",
+        "color": payload.color or "#22c55e"
+    }
+
+    db["devices"].update_one(
+        {"$or": [{"id": dev_id}, {"device_id": dev_id}]},
+        {"$set": device_doc},
+        upsert=True
+    )
+    
+    saved_doc = db["devices"].find_one({"$or": [{"id": dev_id}, {"device_id": dev_id}]})
+    return DeviceResponse(
+        id=str(saved_doc.get("id", dev_id)),
+        device_id=saved_doc.get("device_id", dev_id),
+        name=saved_doc.get("name", "Unnamed Node"),
+        location=saved_doc.get("location", "Unassigned"),
+        assignedUserId=saved_doc.get("assignedUserId"),
+        assignedUserName=saved_doc.get("assignedUserName"),
+        status=saved_doc.get("status", "Offline"),
+        color=saved_doc.get("color", "#22c55e"),
+        metrics=None
+    )
 
 def _process_device_update(device_id: str, payload: DeviceUpdatePayload):
     if db is None:
@@ -679,14 +714,15 @@ def _process_device_update(device_id: str, payload: DeviceUpdatePayload):
         {"$or": [{"id": device_id}, {"device_id": device_id}]}
     )
     return DeviceResponse(
-        id=updated_doc.get("id", updated_doc.get("device_id")),
+        id=str(updated_doc.get("id", updated_doc.get("device_id"))),
         device_id=updated_doc.get("device_id"),
         name=updated_doc.get("name"),
         location=updated_doc.get("location"),
         assignedUserId=updated_doc.get("assignedUserId"),
         assignedUserName=updated_doc.get("assignedUserName"),
-        status=updated_doc.get("status", "Online"),
+        status=updated_doc.get("status", "Offline"),
         color=updated_doc.get("color", "#22c55e"),
+        metrics=None
     )
 
 @app.put("/api/devices/{device_id}", response_model=DeviceResponse)
@@ -712,7 +748,7 @@ def delete_device(device_id: str, current_user: dict = Depends(require_super_adm
     return {"message": f"Device '{device_id}' deleted successfully."}
 
 #
-# ALERTS ENDPOINTS[cite: 31, 32]
+# ALERTS ENDPOINTS
 #
 class AlertResponse(BaseModel):
     id: str
@@ -763,7 +799,7 @@ async def resolve_alert(alert_id: str, data: dict):
         raise HTTPException(status_code=500, detail=str(e))
 
 #
-# TELEMETRY, PREDICTION & RETRAINING ENDPOINTS[cite: 33, 34, 35, 36, 37]
+# TELEMETRY, PREDICTION & RETRAINING ENDPOINTS
 #
 @app.post("/telemetry", status_code=status.HTTP_201_CREATED)
 async def receive_telemetry(payload: TelemetryPayload):
