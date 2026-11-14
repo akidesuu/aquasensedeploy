@@ -1,14 +1,12 @@
 import { useState, useEffect } from 'react';
 import DeviceManagement, { type FloaterNode } from './DeviceManagement';
 
-// Read API URL dynamically from environment variables, falling back to live Render backend
 const BASE_URL =
   import.meta.env.VITE_API_BASE_URL ||
   import.meta.env.VITE_API_URL ||
   'https://aquasense-backend-osmi.onrender.com';
 const API_URL = BASE_URL.replace(/\/$/, '');
 
-// Helper to retrieve auth headers
 const getAuthHeaders = () => {
   const token = localStorage.getItem('token') || localStorage.getItem('access_token');
   return {
@@ -35,14 +33,10 @@ export default function DevicesContainer() {
         name: item.name || 'Unnamed Node',
         location: item.location || 'Unassigned Field Station',
         color: item.color || '#22c55e',
-        status: item.status || 'Online',
+        status: item.status || 'Offline',
         assignedUserId: item.assignedUserId || item.assigned_user || undefined,
         assignedUserName: item.assignedUserName || item.assigned_user_name || undefined,
-        metrics: {
-          ph: item.metrics?.ph ?? item.ph ?? 7.0,
-          temperature: item.metrics?.temperature ?? item.temperature ?? 25.0,
-          turbidity: item.metrics?.turbidity ?? item.turbidity ?? 100.0
-        }
+        metrics: item.metrics || undefined
       }));
 
       setDevices(mappedDevices);
@@ -58,41 +52,6 @@ export default function DevicesContainer() {
     const interval = setInterval(fetchDevices, 10000);
     return () => clearInterval(interval);
   }, []);
-
-  const handleAddDevice = async (newDev: { id: string; name: string; location: string }) => {
-    const payload = {
-      id: newDev.id,
-      device_id: newDev.id,
-      name: newDev.name,
-      location: newDev.location,
-      color: '#0284c7',
-      status: 'Online'
-    };
-
-    const res = await fetch(`${API_URL}/api/devices`, {
-      method: 'POST',
-      headers: getAuthHeaders(),
-      body: JSON.stringify(payload)
-    });
-
-    if (!res.ok) {
-      const errData = await res.json();
-      throw new Error(errData.detail || 'Failed to save node');
-    }
-
-    const savedNode: any = await res.json();
-    const formattedNode: FloaterNode = {
-      id: String(savedNode.id || savedNode.device_id || newDev.id),
-      device_id: savedNode.device_id || newDev.id,
-      name: savedNode.name || newDev.name,
-      location: savedNode.location || newDev.location,
-      color: savedNode.color || '#22c55e',
-      status: savedNode.status || 'Online',
-      metrics: { ph: 7.2, temperature: 28.0, turbidity: 120.0 }
-    };
-
-    setDevices((prev) => [...prev, formattedNode]);
-  };
 
   const handleRemoveDevice = async (id: string) => {
     try {
@@ -117,8 +76,6 @@ export default function DevicesContainer() {
       });
       if (res.ok) {
         window.alert('Reboot command dispatched to device node.');
-      } else {
-        window.alert('Reboot command failed.');
       }
     } catch (err) {
       console.error('Failed to dispatch reboot', err);
@@ -127,7 +84,7 @@ export default function DevicesContainer() {
 
   if (isLoading) {
     return (
-      <div className="p-10 text-center text-slate-400">
+      <div style={{ padding: '60px', textAlign: 'center', color: '#64748b' }}>
         Fetching nodes from database...
       </div>
     );
@@ -136,7 +93,6 @@ export default function DevicesContainer() {
   return (
     <DeviceManagement
       devices={devices}
-      onAddDevice={handleAddDevice}
       onRemoveDevice={handleRemoveDevice}
       onRebootDevice={handleRebootDevice}
     />
