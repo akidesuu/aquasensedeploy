@@ -67,6 +67,8 @@ const getAuthHeaders = () => {
 export default function DeviceManagement({
   devices: propDevices,
   accounts: propAccounts,
+  onAddDevice: _onAddDevice,   // Fixed unused warning
+  onEditDevice: _onEditDevice, // Fixed unused warning
   onRemoveDevice,
   onRebootDevice
 }: DeviceManagementProps) {
@@ -80,7 +82,6 @@ export default function DeviceManagement({
   const [newLocation, setNewLocation] = useState('');
   const [selectedUserId, setSelectedUserId] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [fetchError, setFetchError] = useState<string | null>(null);
 
   useEffect(() => {
     if (propDevices) setDevices(propDevices);
@@ -90,14 +91,10 @@ export default function DeviceManagement({
     if (propAccounts) setAccounts(propAccounts);
   }, [propAccounts]);
 
-  // Fetch accounts
   useEffect(() => {
     if (!propAccounts || propAccounts.length === 0) {
       fetch(`${API_BASE_URL}/api/accounts`, { headers: getAuthHeaders() })
-        .then((res) => {
-          if (!res.ok) throw new Error(`Accounts fetch failed: ${res.status}`);
-          return res.json();
-        })
+        .then((res) => res.json())
         .then((data) => {
           if (Array.isArray(data)) setAccounts(data);
         })
@@ -105,51 +102,37 @@ export default function DeviceManagement({
     }
   }, [propAccounts]);
 
-  // Fetch all devices from backend and check live telemetry data stream
   const loadDevicesFromBackend = async () => {
     try {
-      setFetchError(null);
       const response = await fetch(`${API_BASE_URL}/api/devices`, {
         headers: getAuthHeaders()
       });
-      
-      if (!response.ok) {
-        throw new Error(`Server returned status ${response.status} - Check if logged in as Super Admin.`);
-      }
-      
+      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
       const data = await response.json();
       
       if (Array.isArray(data)) {
-        const mappedDevices: FloaterNode[] = data.map((item: any) => {
-          // If backend didn't supply a status, check if metrics exist or default to Offline
-          const hasMetrics = item.metrics && Object.keys(item.metrics).length > 0;
-          const status = item.status ? item.status : (hasMetrics ? 'Online' : 'Offline');
-          const isOnline = status.toLowerCase() === 'online';
-
-          return {
-            id: String(item.id || item.device_id),
-            device_id: item.device_id || item.id,
-            name: item.name || 'Unnamed Node',
-            location: item.location || 'Unassigned Field Station',
-            color: isOnline ? '#22c55e' : '#ef4444',
-            status: isOnline ? 'Online' : 'Offline',
-            assignedUserId: item.assignedUserId || item.assigned_user || undefined,
-            assignedUserName: item.assignedUserName || item.assigned_user_name || undefined,
-            metrics: isOnline ? (item.metrics || { ph: 7.2, temperature: 28.0, turbidity: 15.0 }) : undefined
-          };
-        });
+        const mappedDevices: FloaterNode[] = data.map((item: any) => ({
+          id: String(item.id || item.device_id),
+          device_id: item.device_id || item.id,
+          name: item.name || 'Unnamed Node',
+          location: item.location || 'Unassigned Field Station',
+          color: item.status?.toLowerCase() === 'online' ? '#22c55e' : '#ef4444',
+          status: item.status || 'Offline',
+          assignedUserId: item.assignedUserId || item.assigned_user || undefined,
+          assignedUserName: item.assignedUserName || item.assigned_user_name || undefined,
+          metrics: item.metrics || undefined
+        }));
         setDevices(mappedDevices);
       }
-    } catch (err: any) {
+    } catch (err) {
       console.error('Failed to fetch devices from FastAPI:', err);
-      setFetchError(err.message || 'Failed to load devices.');
     }
   };
 
   useEffect(() => {
     if (!propDevices) {
       loadDevicesFromBackend();
-      const interval = setInterval(loadDevicesFromBackend, 10000);
+      const interval = setInterval(loadDevicesFromBackend, 10000); // Poll every 10s
       return () => clearInterval(interval);
     }
   }, [propDevices]);
@@ -231,8 +214,7 @@ export default function DeviceManagement({
       device_id: deviceId,
       name: deviceName,
       location: location,
-      assigned_user_id: assignedUser ? assignedUser.id : null,
-      status: 'Offline' // New devices start offline until they send telemetry data
+      assigned_user_id: assignedUser ? assignedUser.id : null
     });
 
     try {
@@ -286,20 +268,11 @@ export default function DeviceManagement({
         </button>
       </div>
 
-      {fetchError && (
-        <div style={styles.errorBanner}>
-          <AlertCircle size={18} />
-          <span>{fetchError} (Make sure you are logged in as Super Admin)</span>
-        </div>
-      )}
-
       {filteredDevices.length === 0 ? (
         <div style={styles.emptyContainer}>
           <Cpu size={40} color="#94a3b8" />
           <h3 style={styles.emptyTitle}>NO ESP32 Nodes Found</h3>
-          <p style={styles.emptySub}>
-            {fetchError ? 'Could not load nodes due to connection/auth error.' : 'Register a new hardware node or verify search parameters.'}
-          </p>
+          <p style={styles.emptySub}>Register a new hardware node or verify search parameters.</p>
         </div>
       ) : (
         <div style={styles.gridContainer}>
@@ -344,7 +317,7 @@ export default function DeviceManagement({
                   </div>
                 </div>
 
-                {/* Display metrics ONLY if online and sending data, otherwise hide metrics and show Offline notice */}
+                {/* Metrics display: Shows live data if online, or indicates offline state if no telemetry */}
                 {isOnline && device.metrics ? (
                   <div style={styles.metricsGrid}>
                     <div style={styles.metricBlock}>
@@ -380,7 +353,7 @@ export default function DeviceManagement({
                 ) : (
                   <div style={styles.offlineMetricsBox}>
                     <AlertCircle size={16} color="#ef4444" />
-                    <span>No data streaming (Offline)</span>
+                    <span>No telemetry data received (Offline)</span>
                   </div>
                 )}
 
@@ -510,7 +483,6 @@ const styles: Record<string, React.CSSProperties> = {
   searchWrapper: { display: 'flex', alignItems: 'center', background: '#ffffff', border: '1px solid #cbd5e1', borderRadius: '8px', width: '400px', height: '42px' },
   searchInput: { border: 'none', outline: 'none', padding: '0 12px', width: '100%', fontSize: '14px', background: 'transparent' },
   addButton: { display: 'flex', alignItems: 'center', gap: '8px', background: '#0284c7', color: '#ffffff', border: 'none', borderRadius: '8px', padding: '0 16px', height: '42px', fontWeight: 600, cursor: 'pointer' },
-  errorBanner: { display: 'flex', alignItems: 'center', gap: '8px', background: '#fee2e2', color: '#b91c1c', padding: '12px 16px', borderRadius: '8px', marginBottom: '20px', fontSize: '14px', fontWeight: 500 },
   emptyContainer: { textAlign: 'center', padding: '60px 20px', background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '12px' },
   emptyTitle: { marginTop: '12px', fontSize: '18px', fontWeight: 600, color: '#1e293b' },
   emptySub: { marginTop: '4px', fontSize: '14px', color: '#64748b' },
