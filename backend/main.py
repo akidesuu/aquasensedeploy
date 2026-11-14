@@ -45,7 +45,7 @@ SCALER_Y_FILE = os.getenv("SCALER_Y_PATH", "scaler_y.pkl")
 TIME_STEPS = 10  # Matches retrained 10-step sequence model
 
 FEATURE_COLUMNS = [
-    "PH",
+    "pH",
     "Temperature",
     "Turbidity",
     "sin_time",
@@ -356,7 +356,7 @@ class DeviceResponse(BaseModel):
 async def root_check(request: Request):
     if os.path.exists("templates/index.html"):
         return templates.TemplateResponse(request=request, name="index.html")
-    return HTMLResponse("<h2>AquaSense Core & ML API Active (Super Admin Dashboard Protected)</h2>")
+    return HTMLResponse("<h2>AquaSense Core & ML API Active</h2>")
 
 #
 # AUTHENTICATION ENDPOINTS
@@ -432,36 +432,34 @@ def login_user(payload: UserAuthPayload):
             detail="Invalid email or password configuration.",
         )
     
-    user_role = str(user_record.get("role", "")).strip().lower()
-    if user_role not in ["super admin", "super_admin", "superadmin"]:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Access Denied: Only Super Administrators are authorized to log in to this web dashboard.",
-        )
+    user_role = str(user_record.get("role", "Farmer")).strip()
     
     token = create_access_token(
         subject=str(user_record.get("email")),
         extra_claims={
+            "id": user_record.get("id"),
             "name": user_record.get("name", user_identifier),
-            "role": "Super Admin",
+            "role": user_role,
         },
     )
     
     return {
         "status": "Authenticated",
+        "id": user_record.get("id"),
         "username": user_record.get("name", user_identifier),
         "email": user_record.get("email", user_identifier),
-        "role": user_record.get("role", "Super Admin"),
+        "role": user_role,
         "access_token": token,
         "token": token,
         "token_type": "bearer",
-        "message": "Access granted to Super Admin control panel.",
+        "message": f"Access granted to AquaSense session as {user_role}.",
     }
 
 @app.get("/api/me")
-def get_me(current_user: dict = Depends(require_super_admin)):
+def get_me(current_user: dict = Depends(get_current_user)):
     return {
         "email": current_user.get("sub"),
+        "id": current_user.get("id"),
         "role": current_user.get("role"),
         "name": current_user.get("name"),
     }
@@ -585,11 +583,11 @@ def delete_account(account_id: str, current_user: dict = Depends(require_super_a
     return {"message": f"Account '{account_id}' deleted successfully."}
 
 #
-# DEVICE MANAGEMENT ENDPOINTS (Super Admin Only)
+# DEVICE MANAGEMENT ENDPOINTS (Accessible to all authenticated users for viewing devices)
 #
 @app.get("/api/devices", response_model=List[DeviceResponse])
 @app.get("/api/devices/", response_model=List[DeviceResponse])
-def get_all_devices(current_user: dict = Depends(require_super_admin)):
+def get_all_devices(current_user: dict = Depends(get_current_user)):
     if db is None:
         raise HTTPException(status_code=500, detail="Database connection is unavailable.")
     cursor = db["devices"].find()
@@ -868,7 +866,7 @@ async def receive_telemetry(payload: TelemetryPayload):
 @app.get("/telemetry")
 def get_telemetry(
     limit: int = Query(100, ge=1, le=1000),
-    current_user: dict = Depends(require_super_admin)
+    current_user: dict = Depends(get_current_user)
 ):
     if db is None:
         raise HTTPException(status_code=500, detail="Database connection is unavailable.")
@@ -885,7 +883,7 @@ def get_telemetry(
 @app.get("/telemetry/latest")
 def get_latest_telemetry(
     device_id: Optional[str] = None,
-    current_user: dict = Depends(require_super_admin)
+    current_user: dict = Depends(get_current_user)
 ):
     if db is None:
         raise HTTPException(status_code=500, detail="Database connection is unavailable.")
@@ -917,7 +915,7 @@ def get_latest_telemetry(
 def get_telemetry_history(
     limit: int = Query(50, ge=1, le=500),
     device_id: Optional[str] = None,
-    current_user: dict = Depends(require_super_admin)
+    current_user: dict = Depends(get_current_user)
 ):
     if db is None:
         raise HTTPException(status_code=500, detail="Database connection is unavailable.")
@@ -958,7 +956,7 @@ async def run_predict_endpoint(payload: TelemetryPayload):
     }
 
 @app.get("/predict")
-def get_latest_prediction(current_user: dict = Depends(require_super_admin)):
+def get_latest_prediction(current_user: dict = Depends(get_current_user)):
     if db is None:
         raise HTTPException(status_code=500, detail="Database connection is unavailable.")
     try:
