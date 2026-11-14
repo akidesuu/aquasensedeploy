@@ -640,24 +640,26 @@ def register_device(payload: DeviceCreatePayload, current_user: dict = Depends(r
     if db is None:
         raise HTTPException(status_code=500, detail="Database connection is unavailable.")
     
-    dev_id = payload.device_id or payload.id or f"ESP32_{int(datetime.now().timestamp())}"
+    dev_id = str(payload.device_id or payload.id or f"ESP32_{int(datetime.now().timestamp())}").strip()
     assigned_uid = payload.assignedUserId or payload.assigned_user_id
     
     assigned_name = None
-    if assigned_uid:
-        account = db["accounts"].find_one({"id": str(assigned_uid)})
+    if assigned_uid and str(assigned_uid).strip() not in ["", "none", "null"]:
+        clean_uid = str(assigned_uid).strip()
+        account = db["accounts"].find_one({"$or": [{"id": clean_uid}, {"email": clean_uid}]})
         if account:
             assigned_name = account.get("name")
+            assigned_uid = account.get("id") # Normalize to account ID
 
     device_doc = {
         "id": dev_id,
         "device_id": dev_id,
-        "name": payload.name or f"Node {dev_id}",
-        "location": payload.location or "Unassigned Field Station",
-        "assignedUserId": str(assigned_uid) if assigned_uid else None,
+        "name": payload.name.strip() if payload.name else f"Node {dev_id}",
+        "location": payload.location.strip() if payload.location else "Unassigned Field Station",
+        "assignedUserId": str(assigned_uid).strip() if assigned_uid and str(assigned_uid).strip() not in ["", "none", "null"] else None,
         "assignedUserName": assigned_name,
-        "status": payload.status or "Offline",
-        "color": payload.color or "#22c55e"
+        "status": payload.status.strip() if payload.status else "Offline",
+        "color": payload.color.strip() if payload.color else "#22c55e"
     }
 
     db["devices"].update_one(
@@ -667,15 +669,18 @@ def register_device(payload: DeviceCreatePayload, current_user: dict = Depends(r
     )
     
     saved_doc = db["devices"].find_one({"$or": [{"id": dev_id}, {"device_id": dev_id}]})
+    if not saved_doc:
+        raise HTTPException(status_code=500, detail="Failed to retrieve registered device from database.")
+
     return DeviceResponse(
-        id=str(saved_doc.get("id", dev_id)),
-        device_id=saved_doc.get("device_id", dev_id),
-        name=saved_doc.get("name", "Unnamed Node"),
-        location=saved_doc.get("location", "Unassigned"),
+        id=str(saved_doc.get("id") or saved_doc.get("device_id") or dev_id),
+        device_id=str(saved_doc.get("device_id") or saved_doc.get("id") or dev_id),
+        name=str(saved_doc.get("name", "Unnamed Node")),
+        location=str(saved_doc.get("location", "Unassigned")),
         assignedUserId=saved_doc.get("assignedUserId"),
         assignedUserName=saved_doc.get("assignedUserName"),
-        status=saved_doc.get("status", "Offline"),
-        color=saved_doc.get("color", "#22c55e"),
+        status=str(saved_doc.get("status", "Offline")),
+        color=str(saved_doc.get("color", "#22c55e")),
         metrics=None
     )
 
