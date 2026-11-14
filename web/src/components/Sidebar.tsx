@@ -1,10 +1,11 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   LayoutDashboard,
   Layers,
   Users,
   LogOut,
-  Waves
+  Waves,
+  ShieldCheck
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -18,6 +19,46 @@ export default function Sidebar({
   setActiveTab,
   onLogout
 }: SidebarProps) {
+  const [adminName, setAdminName] = useState('Super Admin');
+
+  // Extract logged-in user profile info from localStorage / JWT token on mount
+  useEffect(() => {
+    try {
+      const token = localStorage.getItem('token') || localStorage.getItem('access_token');
+      if (token) {
+        // Simple base64 payload decoder for JWT token claims
+        const base64Url = token.split('.')[1];
+        if (base64Url) {
+          const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+          const jsonPayload = decodeURIComponent(
+            atob(base64)
+              .split('')
+              .map((c) => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
+              .join('')
+          );
+          const decoded = JSON.parse(jsonPayload);
+          if (decoded.name) {
+            setAdminName(decoded.name);
+          } else if (decoded.sub) {
+            setAdminName(decoded.sub.split('@')[0]);
+          }
+        }
+      }
+    } catch (err) {
+      console.error('Failed to parse admin identity from token:', err);
+    }
+  }, []);
+
+  // Enhanced logout function to completely clear tokens and reset state
+  const handleLogoutClick = () => {
+    localStorage.removeItem('token');
+    localStorage.removeItem('access_token');
+    localStorage.clear(); // Purge all cached local storage items
+    if (onLogout) {
+      onLogout();
+    }
+  };
+
   return (
     <aside style={styles.sidebar}>
       {/* Glow Effects */}
@@ -37,6 +78,22 @@ export default function Sidebar({
           <p style={styles.sidebarSubtext}>
             Monitoring System
           </p>
+        </div>
+      </div>
+
+      {/* Logged-in Super Admin Profile Card */}
+      <div style={styles.adminProfileCard}>
+        <div style={styles.adminAvatar}>
+          {adminName.charAt(0).toUpperCase()}
+        </div>
+        <div style={styles.adminInfo}>
+          <div style={styles.adminNameText} title={adminName}>
+            {adminName}
+          </div>
+          <div style={styles.adminRoleBadge}>
+            <ShieldCheck size={11} color="#fde047" />
+            <span>Super Admin</span>
+          </div>
         </div>
       </div>
 
@@ -67,7 +124,7 @@ export default function Sidebar({
       {/* Logout */}
       <button
         style={styles.logoutBtn}
-        onClick={onLogout}
+        onClick={handleLogoutClick}
         onMouseEnter={(e) => {
           e.currentTarget.style.background = 'rgba(239,68,68,0.12)';
           e.currentTarget.style.border = '1px solid rgba(239,68,68,0.25)';
@@ -168,7 +225,7 @@ const styles = {
     display: 'flex',
     alignItems: 'center',
     gap: '14px',
-    marginBottom: '45px',
+    marginBottom: '24px',
     padding: '0 8px',
     position: 'relative' as const,
     zIndex: 2
@@ -200,6 +257,55 @@ const styles = {
     fontSize: '11px',
     color: '#94a3b8',
     letterSpacing: '0.08em'
+  },
+  adminProfileCard: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '12px',
+    background: 'rgba(255, 255, 255, 0.05)',
+    border: '1px solid rgba(255, 255, 255, 0.08)',
+    borderRadius: '14px',
+    padding: '12px 14px',
+    marginBottom: '24px',
+    position: 'relative' as const,
+    zIndex: 2,
+    backdropFilter: 'blur(8px)'
+  },
+  adminAvatar: {
+    width: '38px',
+    height: '38px',
+    borderRadius: '10px',
+    background: 'linear-gradient(135deg, #7e22ce 0%, #3b82f6 100%)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    fontWeight: '700',
+    fontSize: '16px',
+    color: '#ffffff',
+    boxShadow: '0 4px 12px rgba(126,34,206,0.3)'
+  },
+  adminInfo: {
+    display: 'flex',
+    flexDirection: 'column' as const,
+    gap: '2px',
+    minWidth: 0,
+    flex: 1
+  },
+  adminNameText: {
+    fontSize: '14px',
+    fontWeight: '700',
+    color: '#f8fafc',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap' as const
+  },
+  adminRoleBadge: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '4px',
+    fontSize: '11px',
+    fontWeight: '600',
+    color: '#fde047'
   },
   sidebarNav: {
     display: 'flex',
