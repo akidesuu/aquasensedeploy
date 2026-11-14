@@ -83,14 +83,18 @@ export default function DeviceManagement({
   const [fetchError, setFetchError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (propDevices) setDevices(propDevices);
+    if (propDevices && propDevices.length > 0) {
+      setDevices(propDevices);
+    }
   }, [propDevices]);
 
   useEffect(() => {
-    if (propAccounts) setAccounts(propAccounts);
+    if (propAccounts && propAccounts.length > 0) {
+      setAccounts(propAccounts);
+    }
   }, [propAccounts]);
 
-  // Fetch accounts
+  // Fetch accounts for assignment dropdown
   useEffect(() => {
     if (!propAccounts || propAccounts.length === 0) {
       fetch(`${API_BASE_URL}/api/accounts`, { headers: getAuthHeaders() })
@@ -105,7 +109,7 @@ export default function DeviceManagement({
     }
   }, [propAccounts]);
 
-  // Fetch all devices from backend and check live telemetry data stream
+  // Fetch all devices from backend database
   const loadDevicesFromBackend = async () => {
     try {
       setFetchError(null);
@@ -121,9 +125,7 @@ export default function DeviceManagement({
       
       if (Array.isArray(data)) {
         const mappedDevices: FloaterNode[] = data.map((item: any) => {
-          // If backend didn't supply a status, check if metrics exist or default to Offline
-          const hasMetrics = item.metrics && Object.keys(item.metrics).length > 0;
-          const status = item.status ? item.status : (hasMetrics ? 'Online' : 'Offline');
+          const status = item.status ? item.status : 'Offline';
           const isOnline = status.toLowerCase() === 'online';
 
           return {
@@ -142,18 +144,21 @@ export default function DeviceManagement({
       }
     } catch (err: any) {
       console.error('Failed to fetch devices from FastAPI:', err);
-      setFetchError(err.message || 'Failed to load devices.');
+      if (!propDevices || propDevices.length === 0) {
+        setFetchError(err.message || 'Failed to load devices.');
+      }
     }
   };
 
   useEffect(() => {
-    if (!propDevices) {
+    if (!propDevices || propDevices.length === 0) {
       loadDevicesFromBackend();
       const interval = setInterval(loadDevicesFromBackend, 10000);
       return () => clearInterval(interval);
     }
   }, [propDevices]);
 
+  // Filter farmer accounts for assignment
   const farmerAccounts = accounts.filter(
     (acc) => acc.role && acc.role.toLowerCase() === 'farmer'
   );
@@ -206,7 +211,7 @@ export default function DeviceManagement({
         headers: getAuthHeaders()
       });
       if (response.ok) {
-        setDevices((prev) => prev.filter((d) => d.id !== id));
+        setDevices((prev) => prev.filter((d) => d.id !== id && d.device_id !== id));
         if (onRemoveDevice) onRemoveDevice(id);
       } else {
         alert('Failed to delete the device from the server.');
@@ -231,8 +236,9 @@ export default function DeviceManagement({
       device_id: deviceId,
       name: deviceName,
       location: location,
+      assignedUserId: assignedUser ? assignedUser.id : null,
       assigned_user_id: assignedUser ? assignedUser.id : null,
-      status: 'Offline' // New devices start offline until they send telemetry data
+      status: 'Offline'
     });
 
     try {
@@ -306,7 +312,7 @@ export default function DeviceManagement({
           {filteredDevices.map((device) => {
             const isOnline = device.status.toLowerCase() === 'online';
             return (
-              <div key={device.id} style={styles.card}>
+              <div key={device.id || device.device_id} style={styles.card}>
                 <div style={styles.cardHeader}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                     <div style={{ ...styles.statusIndicator, backgroundColor: isOnline ? '#22c55e' : '#ef4444' }} />
@@ -344,7 +350,6 @@ export default function DeviceManagement({
                   </div>
                 </div>
 
-                {/* Display metrics ONLY if online and sending data, otherwise hide metrics and show Offline notice */}
                 {isOnline && device.metrics ? (
                   <div style={styles.metricsGrid}>
                     <div style={styles.metricBlock}>

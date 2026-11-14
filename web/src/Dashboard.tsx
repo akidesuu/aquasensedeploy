@@ -199,7 +199,7 @@ export default function Dashboard({ onLogout }: DashboardProps) {
           }
         });
         setFloaters(activeNodes);
-        setSelectedFloater((currentSelected) => {
+        setSelectedFloater((currentSelected: FloaterNode | null) => {
           if (!currentSelected) return null;
           const freshData = activeNodes.find((n) => n.id === currentSelected.id);
           return freshData ? { ...currentSelected, metrics: freshData.metrics } : currentSelected;
@@ -349,27 +349,6 @@ export default function Dashboard({ onLogout }: DashboardProps) {
     const pollInterval = setInterval(fetchCentralData, 3000);
     return () => clearInterval(pollInterval);
   }, [fetchCentralData]);
-
-  const handleAddDevice = (newDev: { id: string; name: string; location: string }) => {
-    const newNode: FloaterNode = {
-      id: newDev.id,
-      device_id: newDev.id,
-      name: newDev.name,
-      location: newDev.location,
-      color: COLORS[floaters.length % COLORS.length],
-      status: 'Online',
-      metrics: { ph: 7.0, temperature: 25.0, turbidity: 5.0 }
-    };
-    setFloaters((prev) => [...prev, newNode]);
-  };
-
-  const handleRemoveDevice = (id: string) => {
-    setFloaters((prev) => prev.filter((f) => f.id !== id));
-  };
-
-  const handleRebootDevice = (id: string) => {
-    console.log(`Reboot signal dispatched to node ${id}`);
-  };
 
   if (loading && !prediction) {
     return (
@@ -595,20 +574,16 @@ export default function Dashboard({ onLogout }: DashboardProps) {
           </>
         )}
 
+        {/* Renders DeviceManagement directly since it's located in web/src/ */}
         {isDeviceManagementTab && (
-          <DeviceManagement
-            devices={floaters}
-            onAddDevice={handleAddDevice}
-            onRemoveDevice={handleRemoveDevice}
-            onRebootDevice={handleRebootDevice}
-          />
+          <DeviceManagement />
         )}
 
         {isAccountManagementTab && (
           <AccountManagement
-            onAddAccount={(acc: AccountData) => {}}
-            onEditAccount={(id: string, acc: AccountData) => {}}
-            onDeleteAccount={(id: string) => {}}
+            onAddAccount={(_acc: AccountData) => {}}
+            onEditAccount={(_id: string, _acc: AccountData) => {}}
+            onDeleteAccount={(_id: string) => {}}
           />
         )}
 
@@ -770,7 +745,6 @@ export default function Dashboard({ onLogout }: DashboardProps) {
   );
 }
 
-// Keeping your original styles structure completely intact
 const styles: Record<string, React.CSSProperties> = {
   appContainer: { display: 'flex', minHeight: '100vh', background: '#0f172a', fontFamily: 'Inter, sans-serif' },
   workspaceBody: { flex: 1, marginLeft: '260px', padding: '32px', boxSizing: 'border-box' },
