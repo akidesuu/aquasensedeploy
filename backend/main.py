@@ -623,7 +623,7 @@ def get_all_devices(current_user: dict = Depends(get_current_user)):
 def register_device(payload: DeviceCreatePayload, current_user: dict = Depends(get_current_user)):
     if db is None:
         raise HTTPException(status_code=500, detail="Database connection is unavailable.")
-    dev_id = str(payload.device_id or payload.id or f"ESP32_{int(datetime.now().timestamp()}").strip()
+    dev_id = str(payload.device_id or payload.id or f"ESP32_{int(datetime.now().timestamp())}").strip()
     assigned_uid = payload.assignedUserId or payload.assigned_user_id
     assigned_name = None
     if assigned_uid and str(assigned_uid).strip() not in ("", "none", "null"):
