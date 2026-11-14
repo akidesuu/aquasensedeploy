@@ -44,7 +44,6 @@ export default function ProfileScreen({ onLogout }: ProfileScreenProps) {
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
-      {/* USER IDENTITY CARD */}
       <View style={styles.userCard}>
         <View style={styles.avatarCircle}>
           <User size={36} color="#0284c7" />
@@ -62,7 +61,6 @@ export default function ProfileScreen({ onLogout }: ProfileScreenProps) {
         </View>
       </View>
 
-      {/* SYSTEM TELEMETRY PREFERENCES */}
       <Text style={styles.sectionTitle}>Telemetry & Alerts</Text>
       <View style={styles.settingsGroup}>
         <View style={styles.settingItem}>
@@ -81,9 +79,7 @@ export default function ProfileScreen({ onLogout }: ProfileScreenProps) {
             trackColor={{ false: '#cbd5e1', true: '#0284c7' }}
           />
         </View>
-
         <View style={styles.settingDivider} />
-
         <View style={styles.settingItem}>
           <View style={styles.settingIconLabelGroup}>
             <View style={[styles.iconBox, { backgroundColor: '#fee2e2' }]}>
@@ -102,7 +98,6 @@ export default function ProfileScreen({ onLogout }: ProfileScreenProps) {
         </View>
       </View>
 
-      {/* HARDWARE & SYNC */}
       <Text style={styles.sectionTitle}>Node Configuration</Text>
       <View style={styles.settingsGroup}>
         <View style={styles.settingItem}>
@@ -121,9 +116,7 @@ export default function ProfileScreen({ onLogout }: ProfileScreenProps) {
             trackColor={{ false: '#cbd5e1', true: '#0284c7' }}
           />
         </View>
-
         <View style={styles.settingDivider} />
-
         <TouchableOpacity style={styles.settingItemClickable} activeOpacity={0.7}>
           <View style={styles.settingIconLabelGroup}>
             <View style={[styles.iconBox, { backgroundColor: '#f1f5f9' }]}>
@@ -138,7 +131,6 @@ export default function ProfileScreen({ onLogout }: ProfileScreenProps) {
         </TouchableOpacity>
       </View>
 
-      {/* DANGER ZONE / LOGOUT */}
       <TouchableOpacity
         style={styles.logoutButton}
         onPress={handleLogoutPress}
@@ -148,18 +140,13 @@ export default function ProfileScreen({ onLogout }: ProfileScreenProps) {
         <Text style={styles.logoutButtonText}>Sign Out of System</Text>
       </TouchableOpacity>
 
-      {/* FOOTER METADATA */}
       <Text style={styles.versionSubtext}>AquaSense Mobile v1.2.0 • Build 2026</Text>
     </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    padding: 20,
-    paddingBottom: 110,
-    gap: 16,
-  },
+  container: { padding: 20, paddingBottom: 110, gap: 16 },
   userCard: {
     backgroundColor: '#ffffff',
     borderRadius: 20,
@@ -183,25 +170,10 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: '#bae6fd',
   },
-  userInfo: {
-    flex: 1,
-    gap: 3,
-  },
-  userName: {
-    fontSize: 16,
-    fontWeight: '800',
-    color: '#0f172a',
-  },
-  emailRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  userEmail: {
-    fontSize: 12,
-    color: '#64748b',
-    fontWeight: '500',
-  },
+  userInfo: { flex: 1, gap: 3 },
+  userName: { fontSize: 16, fontWeight: '800', color: '#0f172a' },
+  emailRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  userEmail: { fontSize: 12, color: '#64748b', fontWeight: '500' },
   roleBadge: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -213,18 +185,8 @@ const styles = StyleSheet.create({
     alignSelf: 'flex-start',
     marginTop: 4,
   },
-  roleBadgeText: {
-    fontSize: 10,
-    fontWeight: '700',
-    color: '#16a34a',
-  },
-  sectionTitle: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#0f172a',
-    marginTop: 4,
-    marginBottom: -4,
-  },
+  roleBadgeText: { fontSize: 10, fontWeight: '700', color: '#16a34a' },
+  sectionTitle: { fontSize: 14, fontWeight: '700', color: '#0f172a', marginTop: 4, marginBottom: -4 },
   settingsGroup: {
     backgroundColor: '#ffffff',
     borderRadius: 16,
@@ -235,46 +197,13 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.03,
     shadowRadius: 3,
   },
-  settingItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 6,
-  },
-  settingItemClickable: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 6,
-  },
-  settingIconLabelGroup: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    flex: 1,
-  },
-  iconBox: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  settingTitle: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: '#0f172a',
-  },
-  settingSubtitle: {
-    fontSize: 11,
-    color: '#64748b',
-    fontWeight: '500',
-  },
-  settingDivider: {
-    height: 1,
-    backgroundColor: '#f1f5f9',
-    marginVertical: 8,
-  },
+  settingItem: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 6 },
+  settingItemClickable: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 6 },
+  settingIconLabelGroup: { flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 },
+  iconBox: { width: 36, height: 36, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
+  settingTitle: { fontSize: 13, fontWeight: '700', color: '#0f172a' },
+  settingSubtitle: { fontSize: 11, color: '#64748b', fontWeight: '500' },
+  settingDivider: { height: 1, backgroundColor: '#f1f5f9', marginVertical: 8 },
   logoutButton: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -287,16 +216,6 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     marginTop: 8,
   },
-  logoutButtonText: {
-    color: '#ef4444',
-    fontWeight: '800',
-    fontSize: 14,
-  },
-  versionSubtext: {
-    textAlign: 'center',
-    fontSize: 11,
-    color: '#94a3b8',
-    fontWeight: '500',
-    marginTop: 4,
-  },
+  logoutButtonText: { color: '#ef4444', fontWeight: '800', fontSize: 14 },
+  versionSubtext: { textAlign: 'center', fontSize: 11, color: '#94a3b8', fontWeight: '500', marginTop: 4 },
 });

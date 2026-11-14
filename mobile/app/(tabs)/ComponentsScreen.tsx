@@ -5,7 +5,6 @@ import {
   Droplet,
   Thermometer,
   Eye,
-  AlertTriangle,
   Battery,
   TrendingUp,
   Activity,
@@ -36,7 +35,6 @@ export default function ComponentsScreen({
   selectedDevice,
   sparklineData,
 }: ComponentsScreenProps) {
-  // Fallback metrics protection matching index.tsx defaults
   const metrics = selectedDevice?.metrics || {
     ph: 7.20,
     temperature: 28.0,
@@ -56,7 +54,6 @@ export default function ComponentsScreen({
 
   return (
     <View style={styles.container}>
-      {/* Alert Warning Banner */}
       {isLowDo && (
         <View style={styles.alertWarningBanner}>
           <View style={styles.alertIconBadge}>
@@ -76,7 +73,6 @@ export default function ComponentsScreen({
         </View>
       )}
 
-      {/* Hero Prediction Card */}
       <View style={[styles.heroPredictionCard, isLowDo && styles.heroPredictionCardWarning]}>
         <View style={styles.heroBackgroundPattern} />
         
@@ -117,10 +113,8 @@ export default function ComponentsScreen({
         </Text>
       </View>
 
-      {/* Bento Grid Metrics */}
       <View style={styles.bentoMetricsLayoutStructure}>
         <View style={styles.metricLeftVerticalStackColumn}>
-          {/* Temperature */}
           <View style={styles.bentoMiniBrickCard}>
             <View style={styles.brickHeaderRow}>
               <View style={[styles.iconContainer, { backgroundColor: '#fef2f2' }]}>
@@ -134,7 +128,6 @@ export default function ComponentsScreen({
             </Text>
           </View>
 
-          {/* Turbidity */}
           <View style={styles.bentoMiniBrickCard}>
             <View style={styles.brickHeaderRow}>
               <View style={[styles.iconContainer, { backgroundColor: '#fefce8' }]}>
@@ -148,7 +141,6 @@ export default function ComponentsScreen({
             </Text>
           </View>
 
-          {/* pH */}
           <View style={styles.bentoMiniBrickCard}>
             <View style={styles.brickHeaderRow}>
               <View style={[styles.iconContainer, { backgroundColor: '#f0fdf4' }]}>
@@ -162,7 +154,6 @@ export default function ComponentsScreen({
           </View>
         </View>
 
-        {/* Battery Level */}
         <View style={styles.bentoRightExpandedColumnCard}>
           <View style={styles.brickHeaderRow}>
             <View style={[
@@ -220,7 +211,6 @@ export default function ComponentsScreen({
         </View>
       </View>
 
-      {/* Sparkline Panel */}
       <View style={styles.miniCryptoAnalyticsPanelBox}>
         <View style={styles.sparklineHeader}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
@@ -259,25 +249,10 @@ export default function ComponentsScreen({
 }
 
 const styles = StyleSheet.create({
-  container: {
-    gap: 16,
-  },
-  sectionTitleRow: {
-    marginTop: 4,
-    marginBottom: 4,
-  },
-  sectionHeaderTitle: {
-    fontSize: 16,
-    fontWeight: '800',
-    color: '#0f172a',
-    letterSpacing: -0.3,
-  },
-  sectionHeaderSubtitle: {
-    fontSize: 12,
-    fontWeight: '500',
-    color: '#64748b',
-    marginTop: 2,
-  },
+  container: { gap: 16 },
+  sectionTitleRow: { marginTop: 4, marginBottom: 4 },
+  sectionHeaderTitle: { fontSize: 16, fontWeight: '800', color: '#0f172a', letterSpacing: -0.3 },
+  sectionHeaderSubtitle: { fontSize: 12, fontWeight: '500', color: '#64748b', marginTop: 2 },
   alertWarningBanner: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -293,35 +268,11 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 6,
   },
-  alertIconBadge: {
-    backgroundColor: '#fee2e2',
-    padding: 8,
-    borderRadius: 12,
-  },
-  alertPillBadge: {
-    backgroundColor: '#dc2626',
-    paddingHorizontal: 6,
-    paddingVertical: 1,
-    borderRadius: 6,
-  },
-  alertPillText: {
-    fontSize: 9,
-    fontWeight: '800',
-    color: '#ffffff',
-  },
-  alertBannerHeadline: {
-    fontSize: 12,
-    fontWeight: '800',
-    color: '#991b1b',
-    letterSpacing: 0.5,
-  },
-  alertBannerBodyCopy: {
-    marginTop: 2,
-    fontSize: 11,
-    fontWeight: '600',
-    color: '#b91c1c',
-    lineHeight: 15,
-  },
+  alertIconBadge: { backgroundColor: '#fee2e2', padding: 8, borderRadius: 12 },
+  alertPillBadge: { backgroundColor: '#dc2626', paddingHorizontal: 6, paddingVertical: 1, borderRadius: 6 },
+  alertPillText: { fontSize: 9, fontWeight: '800', color: '#ffffff' },
+  alertBannerHeadline: { fontSize: 12, fontWeight: '800', color: '#991b1b', letterSpacing: 0.5 },
+  alertBannerBodyCopy: { marginTop: 2, fontSize: 11, fontWeight: '600', color: '#b91c1c', lineHeight: 15 },
   heroPredictionCard: {
     backgroundColor: '#2563eb',
     borderRadius: 24,
@@ -334,10 +285,7 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.35,
     shadowRadius: 10,
   },
-  heroPredictionCardWarning: {
-    backgroundColor: '#dc2626',
-    shadowColor: '#dc2626',
-  },
+  heroPredictionCardWarning: { backgroundColor: '#dc2626', shadowColor: '#dc2626' },
   heroBackgroundPattern: {
     position: 'absolute',
     right: -30,
@@ -347,18 +295,8 @@ const styles = StyleSheet.create({
     borderRadius: 70,
     backgroundColor: 'rgba(255, 255, 255, 0.08)',
   },
-  heroHeaderRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  predictionCardLabel: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: 'rgba(255, 255, 255, 0.85)',
-    letterSpacing: 0.8,
-  },
+  heroHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
+  predictionCardLabel: { fontSize: 11, fontWeight: '700', color: 'rgba(255, 255, 255, 0.85)', letterSpacing: 0.8 },
   heroLivePill: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -368,18 +306,8 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     gap: 4,
   },
-  heroLivePillText: {
-    fontSize: 9,
-    fontWeight: '800',
-    color: '#ffffff',
-  },
-  predictionCardPrimaryValue: {
-    marginBottom: 16,
-    fontSize: 40,
-    fontWeight: '900',
-    color: '#ffffff',
-    letterSpacing: -1,
-  },
+  heroLivePillText: { fontSize: 9, fontWeight: '800', color: '#ffffff' },
+  predictionCardPrimaryValue: { marginBottom: 16, fontSize: 40, fontWeight: '900', color: '#ffffff', letterSpacing: -1 },
   statusBadgeRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -391,37 +319,12 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.1)',
   },
-  statusLabelTitle: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: 'rgba(255, 255, 255, 0.9)',
-  },
-  statusFlagText: {
-    fontSize: 12,
-    fontWeight: '800',
-    textTransform: 'uppercase',
-  },
-  bentoMetricsLayoutStructure: {
-    flexDirection: 'row',
-    gap: 12,
-    width: '100%',
-  },
-  metricLeftVerticalStackColumn: {
-    flex: 1.1,
-    gap: 10,
-  },
-  brickHeaderRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  iconContainer: {
-    width: 28,
-    height: 28,
-    borderRadius: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
+  statusLabelTitle: { fontSize: 12, fontWeight: '600', color: 'rgba(255, 255, 255, 0.9)' },
+  statusFlagText: { fontSize: 12, fontWeight: '800', textTransform: 'uppercase' },
+  bentoMetricsLayoutStructure: { flexDirection: 'row', gap: 12, width: '100%' },
+  metricLeftVerticalStackColumn: { flex: 1.1, gap: 10 },
+  brickHeaderRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  iconContainer: { width: 28, height: 28, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
   bentoMiniBrickCard: {
     backgroundColor: '#ffffff',
     borderRadius: 18,
@@ -434,21 +337,9 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.03,
     shadowRadius: 6,
   },
-  brickLabelTitleText: {
-    fontSize: 11,
-    color: '#64748b',
-    fontWeight: '700',
-  },
-  brickPrimaryValueText: {
-    marginTop: 6,
-    fontSize: 20,
-    fontWeight: '800',
-  },
-  brickUnitText: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: '#94a3b8',
-  },
+  brickLabelTitleText: { fontSize: 11, color: '#64748b', fontWeight: '700' },
+  brickPrimaryValueText: { marginTop: 6, fontSize: 20, fontWeight: '800' },
+  brickUnitText: { fontSize: 11, fontWeight: '600', color: '#94a3b8' },
   bentoRightExpandedColumnCard: {
     flex: 0.9,
     backgroundColor: '#ffffff',
@@ -476,23 +367,9 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#e2e8f0',
   },
-  batteryCellMeterInnerFillProgress: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-  },
-  batteryPercentageDisplayValueText: {
-    fontSize: 24,
-    fontWeight: '900',
-    letterSpacing: -0.5,
-  },
-  batterySubtext: {
-    fontSize: 9,
-    fontWeight: '600',
-    color: '#94a3b8',
-    marginTop: 2,
-  },
+  batteryCellMeterInnerFillProgress: { position: 'absolute', bottom: 0, left: 0, right: 0 },
+  batteryPercentageDisplayValueText: { fontSize: 24, fontWeight: '900', letterSpacing: -0.5 },
+  batterySubtext: { fontSize: 9, fontWeight: '600', color: '#94a3b8', marginTop: 2 },
   miniCryptoAnalyticsPanelBox: {
     backgroundColor: '#0f172a',
     borderRadius: 20,
@@ -505,27 +382,10 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.05)',
   },
-  sparklineHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  sparklineIconWrapper: {
-    backgroundColor: '#1e293b',
-    padding: 6,
-    borderRadius: 8,
-  },
-  cryptoChartLabelTextTitle: {
-    fontSize: 12,
-    color: '#f8fafc',
-    fontWeight: '700',
-  },
-  sparklineSubtitle: {
-    fontSize: 10,
-    color: '#64748b',
-    fontWeight: '500',
-  },
+  sparklineHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
+  sparklineIconWrapper: { backgroundColor: '#1e293b', padding: 6, borderRadius: 8 },
+  cryptoChartLabelTextTitle: { fontSize: 12, color: '#f8fafc', fontWeight: '700' },
+  sparklineSubtitle: { fontSize: 10, color: '#64748b', fontWeight: '500' },
   livePulseBadge: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -535,20 +395,7 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     gap: 4,
   },
-  pulseDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: '#10b981',
-  },
-  livePulseStatusLabel: {
-    fontSize: 9,
-    color: '#10b981',
-    fontWeight: '800',
-  },
-  svgSparklineContainerCanvas: {
-    height: 65,
-    width: '100%',
-    marginTop: 6,
-  },
+  pulseDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#10b981' },
+  livePulseStatusLabel: { fontSize: 9, color: '#10b981', fontWeight: '800' },
+  svgSparklineContainerCanvas: { height: 65, width: '100%', marginTop: 6 },
 });
