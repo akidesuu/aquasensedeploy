@@ -112,6 +112,12 @@ export default function Dashboard({ onLogout }: DashboardProps) {
   const isDeviceManagementTab = ['devices', 'device-management', 'devicemanagement'].includes(normTab);
   const isAccountManagementTab = ['accounts', 'account-management', 'accountmanagement', 'users', 'user-management', 'usermanagement'].includes(normTab);
 
+  // Helper to fetch authorization headers
+  const getAuthHeaders = () => {
+    const token = localStorage.getItem('token') || localStorage.getItem('access_token');
+    return token ? { headers: { Authorization: `Bearer ${token}` } } : {};
+  };
+
   const fetchNodePrediction = useCallback(async (node: FloaterNode) => {
     if (node.status === 'Offline' || node.metrics.ph === 0) {
       setNodePrediction('0.00');
@@ -133,7 +139,7 @@ export default function Dashboard({ onLogout }: DashboardProps) {
         'month': now.getMonth() + 1
       };
 
-      const res = await axios.post<PredictionData>(`${FASTAPI_URL}/predict`, payload);
+      const res = await axios.post<PredictionData>(`${FASTAPI_URL}/predict`, payload, getAuthHeaders());
       const predictedValue = res.data?.predicted_do;
       const numVal = typeof predictedValue === 'number' ? predictedValue : parseFloat(String(predictedValue));
 
@@ -159,9 +165,10 @@ export default function Dashboard({ onLogout }: DashboardProps) {
 
   const fetchCentralData = useCallback(async () => {
     try {
+      const headers = getAuthHeaders();
       const [predRes, telemRes] = await Promise.all([
-        axios.get<PredictionData>(`${FASTAPI_URL}/predict`),
-        axios.get<TelemetryRecord[] | TelemetryRecord>(`${FASTAPI_URL}/telemetry?limit=100`)
+        axios.get<PredictionData>(`${FASTAPI_URL}/predict`, headers),
+        axios.get<TelemetryRecord[] | TelemetryRecord>(`${FASTAPI_URL}/telemetry?limit=100`, headers)
       ]);
 
       setError(null);
@@ -231,9 +238,13 @@ export default function Dashboard({ onLogout }: DashboardProps) {
       } else {
         setFloaters([]);
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Backend streaming error:', err);
-      setError('AquaSense gateway unreachable. Retrying stream...');
+      if (err?.response?.status === 401) {
+        setError('Unauthorized session. Please log in again.');
+      } else {
+        setError('AquaSense gateway unreachable. Retrying stream...');
+      }
     } finally {
       setLoading(false);
     }
@@ -833,6 +844,7 @@ export default function Dashboard({ onLogout }: DashboardProps) {
     </div>
   );
 }
+
 
 const styles: Record<string, React.CSSProperties> = {
   appContainer: { display: 'flex', minHeight: '100vh', width: '100vw', backgroundColor: '#f8fafc', overflowX: 'hidden', boxSizing: 'border-box' },

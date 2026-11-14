@@ -39,10 +39,8 @@ interface AlertScreenProps {
   onAlertsChange?: (alerts: SystemAlert[]) => void;
 }
 
-const SERVER_IP: string = "192.168.18.21";
-const API_BASE_URL = Platform.OS === 'android' && SERVER_IP === 'localhost' 
-  ? "http://10.0.2.2:8000" 
-  : `http://${SERVER_IP}:8000`;
+// POINTED DIRECTLY TO RENDER BACKEND
+const API_BASE_URL = 'https://aquasense-backend-osmi.onrender.com';
 
 const DEFAULT_ALERTS: SystemAlert[] = [
   {
@@ -54,17 +52,6 @@ const DEFAULT_ALERTS: SystemAlert[] = [
     title: 'Low Dissolved Oxygen Warning',
     message: 'Predicted DO level reached 2.4 mg/L (threshold: <= 4.0 mg/L). Immediate aeration required.',
     timestamp: '2 mins ago',
-    isResolved: false,
-  },
-  {
-    id: 'alt-2',
-    deviceId: 'ESP32_POND_01',
-    deviceName: 'Floater 1',
-    location: 'Pond A Alpha',
-    severity: 'warning',
-    title: 'Moderate DO Decline',
-    message: 'Predicted DO level dropped to 3.8 mg/L approaching critical threshold.',
-    timestamp: '15 mins ago',
     isResolved: false,
   },
 ];
@@ -189,6 +176,7 @@ export default function AlertScreen({
   const [doThreshold, setDoThreshold] = useState<string>('4.0');
   const [isModalVisible, setIsModalVisible] = useState<boolean>(false);
 
+  // Fetch alerts dynamically from Render backend
   const fetchAlertsFromBackend = useCallback(async () => {
     try {
       const response = await fetch(`${API_BASE_URL}/api/alerts`);
@@ -211,7 +199,7 @@ export default function AlertScreen({
         }
       }
     } catch (error) {
-      console.warn("Alerts endpoint unreachable, keeping current state:", error);
+      console.warn("Render alerts endpoint unreachable, using fallback state:", error);
     } finally {
       setIsLoading(false);
       setIsRefreshing(false);
@@ -307,7 +295,7 @@ export default function AlertScreen({
         {isLoading ? (
           <View style={styles.emptyStateContainer}>
             <ActivityIndicator size="small" color="#0284c7" />
-            <Text style={styles.emptyStateTitle}>Syncing AquaSense alerts...</Text>
+            <Text style={styles.emptyStateTitle}>Syncing Render alerts...</Text>
           </View>
         ) : activeAlerts.length === 0 ? (
           <View style={styles.emptyStateContainer}>
