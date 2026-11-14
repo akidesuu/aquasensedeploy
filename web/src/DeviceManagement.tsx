@@ -118,7 +118,7 @@ export default function DeviceManagement({
       });
       
       if (!response.ok) {
-        throw new Error(`Server returned status ${response.status} - Check if logged in as Super Admin.`);
+        throw new Error(`Server returned status ${response.status}`);
       }
       
       const data = await response.json();
@@ -158,11 +158,6 @@ export default function DeviceManagement({
     }
   }, [propDevices]);
 
-  // Filter farmer accounts for assignment
-  const farmerAccounts = accounts.filter(
-    (acc) => acc.role && acc.role.toLowerCase() === 'farmer'
-  );
-
   const filteredDevices = devices.filter(
     (dev) =>
       dev.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -188,18 +183,18 @@ export default function DeviceManagement({
     setNewLocation(device.location);
     let currentUserId = device.assignedUserId;
     if (!currentUserId && device.assignedUserName) {
-      const match = farmerAccounts.find((f) => f.name === device.assignedUserName);
+      const match = accounts.find((f) => f.name === device.assignedUserName);
       if (match) currentUserId = match.id;
     }
     setSelectedUserId(currentUserId !== undefined && currentUserId !== null ? String(currentUserId) : '');
     setIsModalOpen(true);
   };
 
-  const handleFarmerSelect = (userId: string) => {
+  const handleAccountSelect = (userId: string) => {
     setSelectedUserId(userId);
-    const selectedFarmer = farmerAccounts.find((acc) => String(acc.id) === String(userId));
-    if (selectedFarmer && selectedFarmer.location) {
-      setNewLocation(selectedFarmer.location);
+    const selectedAcc = accounts.find((acc) => String(acc.id) === String(userId));
+    if (selectedAcc && selectedAcc.location) {
+      setNewLocation(selectedAcc.location);
     }
   };
 
@@ -229,7 +224,7 @@ export default function DeviceManagement({
     if (!deviceId || !deviceName || isSubmitting) return;
 
     setIsSubmitting(true);
-    const assignedUser = farmerAccounts.find((acc) => String(acc.id) === String(selectedUserId));
+    const assignedUser = accounts.find((acc) => String(acc.id) === String(selectedUserId));
     
     const backendBody = JSON.stringify({
       id: deviceId,
@@ -295,7 +290,7 @@ export default function DeviceManagement({
       {fetchError && (
         <div style={styles.errorBanner}>
           <AlertCircle size={18} />
-          <span>{fetchError} (Make sure you are logged in as Super Admin)</span>
+          <span>{fetchError}</span>
         </div>
       )}
 
@@ -304,7 +299,7 @@ export default function DeviceManagement({
           <Cpu size={40} color="#94a3b8" />
           <h3 style={styles.emptyTitle}>NO ESP32 Nodes Found</h3>
           <p style={styles.emptySub}>
-            {fetchError ? 'Could not load nodes due to connection/auth error.' : 'Register a new hardware node or verify search parameters.'}
+            {fetchError ? 'Could not load nodes due to connection error.' : 'Register a new hardware node or verify search parameters.'}
           </p>
         </div>
       ) : (
@@ -466,16 +461,16 @@ export default function DeviceManagement({
               </div>
 
               <div style={styles.inputGroup}>
-                <label style={styles.label}>Assign Farmer Account</label>
+                <label style={styles.label}>Assign User Account (Farmer / Admin)</label>
                 <select
                   value={selectedUserId}
-                  onChange={(e) => handleFarmerSelect(e.target.value)}
+                  onChange={(e) => handleAccountSelect(e.target.value)}
                   style={styles.input}
                 >
-                  <option value="">-- Select Farmer Account --</option>
-                  {farmerAccounts.map((farmer) => (
-                    <option key={farmer.id} value={String(farmer.id)}>
-                      {farmer.name} ({farmer.location || 'No Location'})
+                  <option value="">-- Select User Account --</option>
+                  {accounts.map((acc) => (
+                    <option key={acc.id} value={String(acc.id)}>
+                      {acc.name} ({acc.role} - {acc.location || 'No Location'})
                     </option>
                   ))}
                 </select>
