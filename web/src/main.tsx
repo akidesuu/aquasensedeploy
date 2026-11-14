@@ -5,7 +5,6 @@ import Login from './Login';
 import './index.css';
 
 const AppRoot = () => {
-  // Read session status directly out of browser local memory storage cache
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
     return localStorage.getItem('aquasense_session_active') === 'true';
   });
@@ -19,6 +18,7 @@ const AppRoot = () => {
   const handleLogout = () => {
     localStorage.removeItem('aquasense_session_active');
     localStorage.removeItem('aquasense_session_user');
+    localStorage.clear();
     setIsAuthenticated(false);
   };
 
