@@ -83,18 +83,14 @@ export default function DeviceManagement({
   const [fetchError, setFetchError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (propDevices && propDevices.length > 0) {
-      setDevices(propDevices);
-    }
+    if (propDevices) setDevices(propDevices);
   }, [propDevices]);
 
   useEffect(() => {
-    if (propAccounts && propAccounts.length > 0) {
-      setAccounts(propAccounts);
-    }
+    if (propAccounts) setAccounts(propAccounts);
   }, [propAccounts]);
 
-  // Fetch accounts for assignment dropdown
+  // Fetch accounts
   useEffect(() => {
     if (!propAccounts || propAccounts.length === 0) {
       fetch(`${API_BASE_URL}/api/accounts`, { headers: getAuthHeaders() })
@@ -109,7 +105,7 @@ export default function DeviceManagement({
     }
   }, [propAccounts]);
 
-  // Fetch all devices from backend database
+  // Fetch all devices from backend and check live telemetry data stream
   const loadDevicesFromBackend = async () => {
     try {
       setFetchError(null);
@@ -118,14 +114,16 @@ export default function DeviceManagement({
       });
       
       if (!response.ok) {
-        throw new Error(`Server returned status ${response.status}`);
+        throw new Error(`Server returned status ${response.status} - Check if logged in as Super Admin.`);
       }
       
       const data = await response.json();
       
       if (Array.isArray(data)) {
         const mappedDevices: FloaterNode[] = data.map((item: any) => {
-          const status = item.status ? item.status : 'Offline';
+          // If backend didn't supply a status, check if metrics exist or default to Offline
+          const hasMetrics = item.metrics && Object.keys(item.metrics).length > 0;
+          const status = item.status ? item.status : (hasMetrics ? 'Online' : 'Offline');
           const isOnline = status.toLowerCase() === 'online';
 
           return {
@@ -144,19 +142,21 @@ export default function DeviceManagement({
       }
     } catch (err: any) {
       console.error('Failed to fetch devices from FastAPI:', err);
-      if (!propDevices || propDevices.length === 0) {
-        setFetchError(err.message || 'Failed to load devices.');
-      }
+      setFetchError(err.message || 'Failed to load devices.');
     }
   };
 
   useEffect(() => {
-    if (!propDevices || propDevices.length === 0) {
+    if (!propDevices) {
       loadDevicesFromBackend();
       const interval = setInterval(loadDevicesFromBackend, 10000);
       return () => clearInterval(interval);
     }
   }, [propDevices]);
+
+  const farmerAccounts = accounts.filter(
+    (acc) => acc.role && acc.role.toLowerCase() === 'farmer'
+  );
 
   const filteredDevices = devices.filter(
     (dev) =>
@@ -183,18 +183,18 @@ export default function DeviceManagement({
     setNewLocation(device.location);
     let currentUserId = device.assignedUserId;
     if (!currentUserId && device.assignedUserName) {
-      const match = accounts.find((f) => f.name === device.assignedUserName);
+      const match = farmerAccounts.find((f) => f.name === device.assignedUserName);
       if (match) currentUserId = match.id;
     }
     setSelectedUserId(currentUserId !== undefined && currentUserId !== null ? String(currentUserId) : '');
     setIsModalOpen(true);
   };
 
-  const handleAccountSelect = (userId: string) => {
+  const handleFarmerSelect = (userId: string) => {
     setSelectedUserId(userId);
-    const selectedAcc = accounts.find((acc) => String(acc.id) === String(userId));
-    if (selectedAcc && selectedAcc.location) {
-      setNewLocation(selectedAcc.location);
+    const selectedFarmer = farmerAccounts.find((acc) => String(acc.id) === String(userId));
+    if (selectedFarmer && selectedFarmer.location) {
+      setNewLocation(selectedFarmer.location);
     }
   };
 
@@ -206,7 +206,7 @@ export default function DeviceManagement({
         headers: getAuthHeaders()
       });
       if (response.ok) {
-        setDevices((prev) => prev.filter((d) => d.id !== id && d.device_id !== id));
+        setDevices((prev) => prev.filter((d) => d.id !== id));
         if (onRemoveDevice) onRemoveDevice(id);
       } else {
         alert('Failed to delete the device from the server.');
@@ -224,16 +224,15 @@ export default function DeviceManagement({
     if (!deviceId || !deviceName || isSubmitting) return;
 
     setIsSubmitting(true);
-    const assignedUser = accounts.find((acc) => String(acc.id) === String(selectedUserId));
+    const assignedUser = farmerAccounts.find((acc) => String(acc.id) === String(selectedUserId));
     
     const backendBody = JSON.stringify({
       id: deviceId,
       device_id: deviceId,
       name: deviceName,
       location: location,
-      assignedUserId: assignedUser ? assignedUser.id : null,
       assigned_user_id: assignedUser ? assignedUser.id : null,
-      status: 'Offline'
+      status: 'Offline' // New devices start offline until they send telemetry data
     });
 
     try {
@@ -290,7 +289,7 @@ export default function DeviceManagement({
       {fetchError && (
         <div style={styles.errorBanner}>
           <AlertCircle size={18} />
-          <span>{fetchError}</span>
+          <span>{fetchError} (Make sure you are logged in as Super Admin)</span>
         </div>
       )}
 
@@ -299,7 +298,7 @@ export default function DeviceManagement({
           <Cpu size={40} color="#94a3b8" />
           <h3 style={styles.emptyTitle}>NO ESP32 Nodes Found</h3>
           <p style={styles.emptySub}>
-            {fetchError ? 'Could not load nodes due to connection error.' : 'Register a new hardware node or verify search parameters.'}
+            {fetchError ? 'Could not load nodes due to connection/auth error.' : 'Register a new hardware node or verify search parameters.'}
           </p>
         </div>
       ) : (
@@ -307,7 +306,7 @@ export default function DeviceManagement({
           {filteredDevices.map((device) => {
             const isOnline = device.status.toLowerCase() === 'online';
             return (
-              <div key={device.id || device.device_id} style={styles.card}>
+              <div key={device.id} style={styles.card}>
                 <div style={styles.cardHeader}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                     <div style={{ ...styles.statusIndicator, backgroundColor: isOnline ? '#22c55e' : '#ef4444' }} />
@@ -345,6 +344,7 @@ export default function DeviceManagement({
                   </div>
                 </div>
 
+                {/* Display metrics ONLY if online and sending data, otherwise hide metrics and show Offline notice */}
                 {isOnline && device.metrics ? (
                   <div style={styles.metricsGrid}>
                     <div style={styles.metricBlock}>
@@ -461,16 +461,16 @@ export default function DeviceManagement({
               </div>
 
               <div style={styles.inputGroup}>
-                <label style={styles.label}>Assign User Account (Farmer / Admin)</label>
+                <label style={styles.label}>Assign Farmer Account</label>
                 <select
                   value={selectedUserId}
-                  onChange={(e) => handleAccountSelect(e.target.value)}
+                  onChange={(e) => handleFarmerSelect(e.target.value)}
                   style={styles.input}
                 >
-                  <option value="">-- Select User Account --</option>
-                  {accounts.map((acc) => (
-                    <option key={acc.id} value={String(acc.id)}>
-                      {acc.name} ({acc.role} - {acc.location || 'No Location'})
+                  <option value="">-- Select Farmer Account --</option>
+                  {farmerAccounts.map((farmer) => (
+                    <option key={farmer.id} value={String(farmer.id)}>
+                      {farmer.name} ({farmer.location || 'No Location'})
                     </option>
                   ))}
                 </select>
