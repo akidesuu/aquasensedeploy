@@ -119,7 +119,7 @@ export default function Dashboard({ onLogout }: DashboardProps) {
   };
 
   const fetchNodePrediction = useCallback(async (node: FloaterNode) => {
-    if (node.status === 'Offline' || node.metrics.ph === 0) {
+    if (node.status === 'Offline' || node.metrics?.ph === 0) {
       setNodePrediction('0.00');
       setModalHistory([0, 0, 0, 0]);
       setNodePredictLoading(false);
@@ -131,9 +131,9 @@ export default function Dashboard({ onLogout }: DashboardProps) {
     try {
       const now = new Date();
       const payload = {
-        'Temperature (°C)': node.metrics.temperature,
-        'pH': node.metrics.ph,
-        'Turbidity (NTU)': node.metrics.turbidity,
+        'Temperature (°C)': node.metrics?.temperature,
+        'pH': node.metrics?.ph,
+        'Turbidity (NTU)': node.metrics?.turbidity,
         'hour': now.getHours(),
         'day': now.getDate(),
         'month': now.getMonth() + 1
@@ -383,7 +383,7 @@ export default function Dashboard({ onLogout }: DashboardProps) {
     if (selectedFloater) {
       fetchNodePrediction(selectedFloater);
     }
-  }, [selectedFloater?.metrics.ph, selectedFloater?.metrics.temperature, selectedFloater?.metrics.turbidity, fetchNodePrediction]);
+  }, [selectedFloater?.metrics?.ph, selectedFloater?.metrics?.temperature, selectedFloater?.metrics?.turbidity, fetchNodePrediction]);
 
   useEffect(() => {
     fetchCentralData();
@@ -728,7 +728,7 @@ export default function Dashboard({ onLogout }: DashboardProps) {
                         <p style={styles.brickLabelText}>pH</p>
                       </div>
                       <span style={{ ...styles.brickValueText, color: selectedFloater.status === 'Offline' ? '#94a3b8' : '#16a34a' }}>
-                        {selectedFloater.status === 'Offline' ? '0.00' : selectedFloater.metrics.ph}
+                        {selectedFloater.status === 'Offline' ? '0.00' : selectedFloater?.metrics?.ph}
                       </span>
                     </div>
 
@@ -738,7 +738,7 @@ export default function Dashboard({ onLogout }: DashboardProps) {
                         <p style={styles.brickLabelText}>Temperature</p>
                       </div>
                       <span style={{ ...styles.brickValueText, color: selectedFloater.status === 'Offline' ? '#94a3b8' : '#0284c7' }}>
-                        {selectedFloater.status === 'Offline' ? '0.0' : selectedFloater.metrics.temperature}°C
+                        {selectedFloater.status === 'Offline' ? '0.0' : selectedFloater?.metrics?.temperature}°C
                       </span>
                     </div>
 
@@ -748,7 +748,7 @@ export default function Dashboard({ onLogout }: DashboardProps) {
                         <p style={styles.brickLabelText}>Turbidity</p>
                       </div>
                       <span style={{ ...styles.brickValueText, color: selectedFloater.status === 'Offline' ? '#94a3b8' : '#e11d48' }}>
-                        {selectedFloater.status === 'Offline' ? '0.0' : selectedFloater.metrics.turbidity} NTU
+                        {selectedFloater.status === 'Offline' ? '0.0' : selectedFloater?.metrics?.turbidity} NTU
                       </span>
                     </div>
                   </div>
