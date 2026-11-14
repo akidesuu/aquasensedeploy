@@ -44,6 +44,13 @@ export default function Login({ onLoginSuccess }: LoginProps) {
         throw new Error('Access Denied: Only Super Administrators are authorized to access this dashboard.');
       }
 
+      // FIX: Extract token from response and save it to localStorage
+      const authToken = data.token || data.access_token;
+      if (authToken) {
+        localStorage.setItem('token', authToken);
+        localStorage.setItem('access_token', authToken);
+      }
+
       onLoginSuccess(data.username || data.user?.username || username);
     } catch (err: unknown) {
       if (err instanceof Error) {
@@ -128,6 +135,8 @@ export default function Login({ onLoginSuccess }: LoginProps) {
     </div>
   );
 }
+
+// (Keep your existing styles object below if you have it in your file)
 
 const styles: Record<string, React.CSSProperties> = {
   loginContainer: {
