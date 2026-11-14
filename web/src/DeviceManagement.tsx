@@ -110,7 +110,7 @@ export default function DeviceManagement({
     }
   }, [propAccounts]);
 
-  // Fetch devices from FastAPI on mount
+  // Fetch all registered devices from FastAPI on mount
   const loadDevicesFromBackend = async () => {
     try {
       const response = await fetch(`${API_BASE_URL}/api/devices`, {
@@ -118,6 +118,7 @@ export default function DeviceManagement({
       });
       if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
       const data = await response.json();
+      
       if (Array.isArray(data)) {
         const mappedDevices: FloaterNode[] = data.map((item: any) => ({
           id: String(item.id || item.device_id),
@@ -320,111 +321,114 @@ export default function DeviceManagement({
         </div>
       ) : (
         <div style={styles.gridContainer}>
-          {filteredDevices.map((device) => (
-            <div key={device.id} style={styles.card}>
-              <div style={styles.cardHeader}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                  <div style={{ ...styles.statusIndicator, backgroundColor: device.color }} />
-                  <div>
-                    <h3 style={styles.deviceName}>{device.name}</h3>
-                    <p style={styles.deviceId}>ID: {device.device_id}</p>
+          {filteredDevices.map((device) => {
+            const isOnline = device.status.toLowerCase() === 'online';
+            return (
+              <div key={device.id} style={styles.card}>
+                <div style={styles.cardHeader}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <div style={{ ...styles.statusIndicator, backgroundColor: isOnline ? device.color : '#ef4444' }} />
+                    <div>
+                      <h3 style={styles.deviceName}>{device.name}</h3>
+                      <p style={styles.deviceId}>ID: {device.device_id}</p>
+                    </div>
                   </div>
-                </div>
-                <span
-                  style={{
-                    ...styles.statusBadge,
-                    backgroundColor: device.status.toLowerCase() === 'online' ? '#dcfce7' : '#fee2e2',
-                    color: device.status.toLowerCase() === 'online' ? '#15803d' : '#b91c1c'
-                  }}
-                >
-                  {device.status.toLowerCase() === 'online' ? (
-                    <CheckCircle2 size={12} style={{ marginRight: '4px' }} />
-                  ) : (
-                    <AlertCircle size={12} style={{ marginRight: '4px' }} />
-                  )}
-                  {device.status}
-                </span>
-              </div>
-
-              <div style={styles.infoSection}>
-                <div style={styles.locationRow}>
-                  <MapPin size={14} color="#64748b" />
-                  <span style={styles.locationText}>{device.location}</span>
-                </div>
-                <div style={styles.userRow}>
-                  <User size={14} color="#0284c7" />
-                  <span style={styles.userText}>
-                    User: {device.assignedUserName || 'Unassigned'}
+                  <span
+                    style={{
+                      ...styles.statusBadge,
+                      backgroundColor: isOnline ? '#dcfce7' : '#fee2e2',
+                      color: isOnline ? '#15803d' : '#b91c1c'
+                    }}
+                  >
+                    {isOnline ? (
+                      <CheckCircle2 size={12} style={{ marginRight: '4px' }} />
+                    ) : (
+                      <AlertCircle size={12} style={{ marginRight: '4px' }} />
+                    )}
+                    {device.status}
                   </span>
                 </div>
-              </div>
 
-              <div style={styles.metricsGrid}>
-                <div style={styles.metricBlock}>
-                  <div style={styles.metricHeader}>
-                    <Droplet size={14} color="#16a34a" />
-                    <span>pH</span>
+                <div style={styles.infoSection}>
+                  <div style={styles.locationRow}>
+                    <MapPin size={14} color="#64748b" />
+                    <span style={styles.locationText}>{device.location}</span>
                   </div>
-                  <strong style={{ ...styles.metricVal, color: '#16a34a' }}>
-                    {device.metrics?.ph != null ? device.metrics.ph.toFixed(1) : '7.0'}
-                  </strong>
+                  <div style={styles.userRow}>
+                    <User size={14} color="#0284c7" />
+                    <span style={styles.userText}>
+                      User: {device.assignedUserName || 'Unassigned'}
+                    </span>
+                  </div>
                 </div>
 
-                <div style={styles.metricBlock}>
-                  <div style={styles.metricHeader}>
-                    <Thermometer size={14} color="#0284c7" />
-                    <span>Temp</span>
+                <div style={styles.metricsGrid}>
+                  <div style={styles.metricBlock}>
+                    <div style={styles.metricHeader}>
+                      <Droplet size={14} color="#16a34a" />
+                      <span>pH</span>
+                    </div>
+                    <strong style={{ ...styles.metricVal, color: '#16a34a' }}>
+                      {device.metrics?.ph != null ? device.metrics.ph.toFixed(1) : '7.0'}
+                    </strong>
                   </div>
-                  <strong style={{ ...styles.metricVal, color: '#0284c7' }}>
-                    {device.metrics?.temperature != null ? device.metrics.temperature.toFixed(1) : '25.0'}°C
-                  </strong>
+
+                  <div style={styles.metricBlock}>
+                    <div style={styles.metricHeader}>
+                      <Thermometer size={14} color="#0284c7" />
+                      <span>Temp</span>
+                    </div>
+                    <strong style={{ ...styles.metricVal, color: '#0284c7' }}>
+                      {device.metrics?.temperature != null ? device.metrics.temperature.toFixed(1) : '25.0'}°C
+                    </strong>
+                  </div>
+
+                  <div style={styles.metricBlock}>
+                    <div style={styles.metricHeader}>
+                      <Eye size={14} color="#e11d48" />
+                      <span>Turbidity</span>
+                    </div>
+                    <strong style={{ ...styles.metricVal, color: '#e11d48' }}>
+                      {device.metrics?.turbidity != null ? device.metrics.turbidity.toFixed(1) : '100.0'}
+                    </strong>
+                  </div>
                 </div>
 
-                <div style={styles.metricBlock}>
-                  <div style={styles.metricHeader}>
-                    <Eye size={14} color="#e11d48" />
-                    <span>Turbidity</span>
+                <div style={styles.cardFooter}>
+                  <div style={styles.wifiTag}>
+                    <Wifi size={13} color={isOnline ? '#16a34a' : '#94a3b8'} />
+                    <span>{isOnline ? 'Wi-Fi Direct' : 'Disconnected'}</span>
                   </div>
-                  <strong style={{ ...styles.metricVal, color: '#e11d48' }}>
-                    {device.metrics?.turbidity != null ? device.metrics.turbidity.toFixed(1) : '100.0'}
-                  </strong>
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <button
+                      type="button"
+                      title="Edit Node"
+                      onClick={() => handleOpenEditModal(device)}
+                      style={styles.actionBtnIconEdit}
+                    >
+                      <Pencil size={15} color="#d97706" />
+                    </button>
+                    <button
+                      type="button"
+                      title="Reboot Node"
+                      onClick={() => onRebootDevice && onRebootDevice(device.id)}
+                      style={styles.actionBtnIcon}
+                    >
+                      <RotateCw size={15} color="#0284c7" />
+                    </button>
+                    <button
+                      type="button"
+                      title="Remove Node"
+                      onClick={() => handleDeleteDevice(device.id)}
+                      style={styles.actionBtnIconDanger}
+                    >
+                      <Trash2 size={15} color="#dc2626" />
+                    </button>
+                  </div>
                 </div>
               </div>
-
-              <div style={styles.cardFooter}>
-                <div style={styles.wifiTag}>
-                  <Wifi size={13} color="#16a34a" />
-                  <span>Wi-Fi Direct</span>
-                </div>
-                <div style={{ display: 'flex', gap: '8px' }}>
-                  <button
-                    type="button"
-                    title="Edit Node"
-                    onClick={() => handleOpenEditModal(device)}
-                    style={styles.actionBtnIconEdit}
-                  >
-                    <Pencil size={15} color="#d97706" />
-                  </button>
-                  <button
-                    type="button"
-                    title="Reboot Node"
-                    onClick={() => onRebootDevice && onRebootDevice(device.id)}
-                    style={styles.actionBtnIcon}
-                  >
-                    <RotateCw size={15} color="#0284c7" />
-                  </button>
-                  <button
-                    type="button"
-                    title="Remove Node"
-                    onClick={() => handleDeleteDevice(device.id)}
-                    style={styles.actionBtnIconDanger}
-                  >
-                    <Trash2 size={15} color="#dc2626" />
-                  </button>
-                </div>
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
@@ -555,14 +559,14 @@ const styles: Record<string, React.CSSProperties> = {
   metricsGrid: { display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px', marginBottom: '16px' },
   metricBlock: { background: '#f1f5f9', padding: '8px', borderRadius: '8px', textAlign: 'center' },
   metricHeader: { display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px', fontSize: '12px', color: '#475569', marginBottom: '4px' },
-  metricVal: { fontSize: '14px' },
+  metricVal: { fontSize: '14px', fontWeight: 700 },
   cardFooter: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '12px', borderTop: '1px solid #f1f5f9' },
   wifiTag: { display: 'flex', alignItems: 'center', gap: '4px', fontSize: '12px', color: '#15803d', background: '#f0fdf4', padding: '2px 8px', borderRadius: '6px' },
   actionBtnIcon: { background: '#f0f9ff', border: '1px solid #bae6fd', borderRadius: '6px', width: '32px', height: '32px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' },
   actionBtnIconEdit: { background: '#fef3c7', border: '1px solid #fde68a', borderRadius: '6px', width: '32px', height: '32px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' },
-  actionBtnIconDanger: { background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '6px', width: '32px', height: '32px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' },
+  actionBtnIconDanger: { background: '#fee2e2', border: '1px solid #fecaca', borderRadius: '6px', width: '32px', height: '32px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' },
   modalOverlay: { position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(15, 23, 42, 0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '16px' },
-  modalContent: { background: '#ffffff', borderRadius: '12px', width: '100%', maxWidth: '480px', boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1)', overflow: 'hidden' },
+  modalContent: { background: '#ffffff', borderRadius: '12px', width: '100%', maxWidth: '480px', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)', overflow: 'hidden' },
   modalHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '20px', borderBottom: '1px solid #e2e8f0' },
   modalTitle: { margin: 0, fontSize: '18px', fontWeight: 700, color: '#0f172a' },
   closeBtn: { background: 'transparent', border: 'none', cursor: 'pointer' },
