@@ -30,7 +30,6 @@ from sklearn.preprocessing import StandardScaler
 SECRET_KEY = os.getenv("JWT_SECRET_KEY", "your_32_character_secret_key_here_secure_enough")
 if not SECRET_KEY or len(SECRET_KEY) < 32:
     raise RuntimeError("JWT_SECRET_KEY must be configured with at least 32 characters.")
-
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60
 security = HTTPBearer(auto_error=False)
@@ -43,9 +42,8 @@ RF_MODEL_FILE = os.getenv("RF_MODEL_PATH", "rf_model.pkl")
 SCALER_X_FILE = os.getenv("SCALER_X_PATH", "scaler_x.pkl")
 SCALER_Y_FILE = os.getenv("SCALER_Y_PATH", "scaler_y.pkl")
 TIME_STEPS = 10  # Matches retrained 10-step sequence model
-
 FEATURE_COLUMNS = [
-    "PH",
+    "pH",
     "Temperature",
     "Turbidity",
     "sin_time",
@@ -59,7 +57,7 @@ FEATURE_COLUMNS = [
     "ph_temp_ratio",
     "DO_lag1",
     "DO_lag2",
-    "DO_lag3",
+    "DO_lag3"
 ]
 
 #
@@ -92,7 +90,8 @@ MONGO_URI = os.getenv(
 db = None
 try:
     mongo_client = MongoClient(
-        MONGO_URI, serverSelectionTimeoutMS=5000, tlsCAFile=certifi.where()
+        MONGO_URI, serverSelectionTimeoutMS=5000,
+        tlsCAFile=certifi.where()
     )
     db = mongo_client["aquasense_db"]
     mongo_client.server_info()
@@ -188,13 +187,11 @@ def require_super_admin(current_user: dict = Depends(get_current_user)) -> dict:
     """Strict dependency ensuring account is a Super Admin based on DB or token record."""
     email = current_user.get("sub")
     role = str(current_user.get("role", "")).strip().lower()
-    
     if db is not None and email:
         db_user = db["accounts"].find_one({"email": email.lower()})
         if db_user:
             role = str(db_user.get("role", "")).strip().lower()
-
-    if role not in ["super admin", "super_admin", "superadmin"]:
+    if role not in ("super admin", "super_admin", "superadmin"):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Access Denied: Only Super Administrators are authorized to access this resource.",
@@ -241,7 +238,6 @@ def _run_hybrid_inference(buffer_records: list) -> float:
     input_df_features = df_buf[FEATURE_COLUMNS]
     X_scaled = scaler_x.transform(input_df_features.values)
     X_seq = np.expand_dims(X_scaled, axis=0)
-    
     trend = lstm_model.predict(X_seq, verbose=0)
     current_raw = X_scaled[-1].reshape(1, -1)
     hybrid_input = np.hstack((current_raw, trend))
@@ -356,7 +352,7 @@ class DeviceResponse(BaseModel):
 async def root_check(request: Request):
     if os.path.exists("templates/index.html"):
         return templates.TemplateResponse(request=request, name="index.html")
-    return HTMLResponse("<h2>AquaSense Core & ML API Active (Super Admin Dashboard Protected)</h2>")
+    return HTMLResponse("<h2>AquaSense Core & ML API Active</h2>")
 
 #
 # AUTHENTICATION ENDPOINTS
@@ -368,7 +364,6 @@ def register_user(payload: UserAuthPayload):
     user_identifier = (payload.email or payload.username or "").strip()
     if not user_identifier:
         raise HTTPException(status_code=400, detail="Email or username is required.")
-    
     existing_account = db["accounts"].find_one(
         {
             "$or": [
@@ -417,7 +412,6 @@ def login_user(payload: UserAuthPayload):
     user_identifier = (payload.email or payload.username or "").strip()
     if not user_identifier:
         raise HTTPException(status_code=400, detail="Email or username is required.")
-    
     user_record = db["accounts"].find_one(
         {
             "$or": [
@@ -432,34 +426,27 @@ def login_user(payload: UserAuthPayload):
             detail="Invalid email or password configuration.",
         )
     
-    user_role = str(user_record.get("role", "")).strip().lower()
-    if user_role not in ["super admin", "super_admin", "superadmin"]:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Access Denied: Only Super Administrators are authorized to log in to this web dashboard.",
-        )
-    
+    user_role = str(user_record.get("role", "Super Admin")).strip()
     token = create_access_token(
         subject=str(user_record.get("email")),
         extra_claims={
             "name": user_record.get("name", user_identifier),
-            "role": "Super Admin",
+            "role": user_role,
         },
     )
-    
     return {
         "status": "Authenticated",
         "username": user_record.get("name", user_identifier),
         "email": user_record.get("email", user_identifier),
-        "role": user_record.get("role", "Super Admin"),
+        "role": user_role,
         "access_token": token,
         "token": token,
         "token_type": "bearer",
-        "message": "Access granted to Super Admin control panel.",
+        "message": "Access granted to AquaSense control panel.",
     }
 
 @app.get("/api/me")
-def get_me(current_user: dict = Depends(require_super_admin)):
+def get_me(current_user: dict = Depends(get_current_user)):
     return {
         "email": current_user.get("sub"),
         "role": current_user.get("role"),
@@ -536,7 +523,6 @@ def update_account(account_id: str, payload: AccountUpdatePayload, current_user:
     existing_doc = db["accounts"].find_one({"id": account_id})
     if not existing_doc:
         raise HTTPException(status_code=404, detail="Account not found.")
-    
     update_fields = {}
     if payload.name:
         update_fields["name"] = payload.name.strip()
@@ -559,10 +545,8 @@ def update_account(account_id: str, payload: AccountUpdatePayload, current_user:
         if len(payload.password.strip()) < 6:
             raise HTTPException(status_code=400, detail="Password must be at least 6 characters.")
         update_fields["password_hash"] = hash_password(payload.password.strip())
-        
     if update_fields:
         db["accounts"].update_one({"id": account_id}, {"$set": update_fields})
-        
     updated_doc = db["accounts"].find_one({"id": account_id})
     return AccountResponse(
         id=updated_doc["id"],
@@ -585,26 +569,21 @@ def delete_account(account_id: str, current_user: dict = Depends(require_super_a
     return {"message": f"Account '{account_id}' deleted successfully."}
 
 #
-# DEVICE MANAGEMENT ENDPOINTS (Super Admin Only)
+# DEVICE MANAGEMENT ENDPOINTS (Accessible to All Authenticated Users)
 #
 @app.get("/api/devices", response_model=List[DeviceResponse])
 @app.get("/api/devices/", response_model=List[DeviceResponse])
-def get_all_devices(current_user: dict = Depends(require_super_admin)):
+def get_all_devices(current_user: dict = Depends(get_current_user)):
     if db is None:
         raise HTTPException(status_code=500, detail="Database connection is unavailable.")
     cursor = db["devices"].find()
     devices = []
     now_utc = datetime.now(timezone.utc)
-    
     for doc in cursor:
         dev_id = doc.get("device_id") or doc.get("id", "")
-        
-        # Check latest telemetry packet to determine if device is Online or Offline
         latest_tel = db["raw_telemetry"].find_one({"device_id": dev_id}, sort=[("_id", -1)])
-        
         status_val = doc.get("status", "Offline")
         metrics = None
-        
         if latest_tel:
             tel_time = latest_tel.get("timestamp")
             if tel_time:
@@ -614,17 +593,16 @@ def get_all_devices(current_user: dict = Depends(require_super_admin)):
                     except:
                         pass
                 if isinstance(tel_time, datetime):
-                    if (now_utc - tel_time).total_seconds() < 600:  # 10 minutes threshold
+                    if (now_utc - tel_time).total_seconds() < 600:
                         status_val = "Online"
             else:
                 status_val = "Online"
-                
+            
             metrics = {
                 "ph": latest_tel.get("ph", 7.0),
                 "temperature": latest_tel.get("temperature", 25.0),
                 "turbidity": latest_tel.get("turbidity", 0.0)
             }
-        
         devices.append(
             DeviceResponse(
                 id=str(doc.get("id", dev_id)),
@@ -642,42 +620,37 @@ def get_all_devices(current_user: dict = Depends(require_super_admin)):
 
 @app.post("/api/devices", response_model=DeviceResponse, status_code=status.HTTP_201_CREATED)
 @app.post("/api/devices/create/", response_model=DeviceResponse, status_code=status.HTTP_201_CREATED)
-def register_device(payload: DeviceCreatePayload, current_user: dict = Depends(require_super_admin)):
+def register_device(payload: DeviceCreatePayload, current_user: dict = Depends(get_current_user)):
     if db is None:
         raise HTTPException(status_code=500, detail="Database connection is unavailable.")
-    
     dev_id = str(payload.device_id or payload.id or f"ESP32_{int(datetime.now().timestamp())}").strip()
     assigned_uid = payload.assignedUserId or payload.assigned_user_id
-    
     assigned_name = None
-    if assigned_uid and str(assigned_uid).strip() not in ["", "none", "null"]:
+    if assigned_uid and str(assigned_uid).strip() not in ("", "none", "null"):
         clean_uid = str(assigned_uid).strip()
         account = db["accounts"].find_one({"$or": [{"id": clean_uid}, {"email": clean_uid}]})
         if account:
             assigned_name = account.get("name")
-            assigned_uid = account.get("id") # Normalize to account ID
+            assigned_uid = account.get("id")
 
     device_doc = {
         "id": dev_id,
         "device_id": dev_id,
         "name": payload.name.strip() if payload.name else f"Node {dev_id}",
         "location": payload.location.strip() if payload.location else "Unassigned Field Station",
-        "assignedUserId": str(assigned_uid).strip() if assigned_uid and str(assigned_uid).strip() not in ["", "none", "null"] else None,
+        "assignedUserId": str(assigned_uid).strip() if assigned_uid and str(assigned_uid).strip() not in ("", "none", "null") else None,
         "assignedUserName": assigned_name,
         "status": payload.status.strip() if payload.status else "Offline",
         "color": payload.color.strip() if payload.color else "#22c55e"
     }
-
     db["devices"].update_one(
         {"$or": [{"id": dev_id}, {"device_id": dev_id}]},
         {"$set": device_doc},
         upsert=True
     )
-    
     saved_doc = db["devices"].find_one({"$or": [{"id": dev_id}, {"device_id": dev_id}]})
     if not saved_doc:
         raise HTTPException(status_code=500, detail="Failed to retrieve registered device from database.")
-
     return DeviceResponse(
         id=str(saved_doc.get("id") or saved_doc.get("device_id") or dev_id),
         device_id=str(saved_doc.get("device_id") or saved_doc.get("id") or dev_id),
@@ -693,37 +666,28 @@ def register_device(payload: DeviceCreatePayload, current_user: dict = Depends(r
 def _process_device_update(device_id: str, payload: DeviceUpdatePayload):
     if db is None:
         raise HTTPException(status_code=500, detail="Database connection is unavailable.")
-    existing_doc = db["devices"].find_one(
-        {"$or": [{"id": device_id}, {"device_id": device_id}]}
-    )
+    existing_doc = db["devices"].find_one({"$or": [{"id": device_id}, {"device_id": device_id}]})
     if not existing_doc:
         raise HTTPException(status_code=404, detail="Device not found.")
-    
     raw_data = payload.model_dump(exclude_unset=True)
     update_fields = {}
     for k, v in raw_data.items():
         if v is not None:
             update_fields[k] = v
-            
     if "assigned_user" in update_fields and "assignedUserId" not in update_fields:
         update_fields["assignedUserId"] = update_fields.pop("assigned_user")
     if "assigned_user_id" in update_fields and "assignedUserId" not in update_fields:
         update_fields["assignedUserId"] = update_fields.pop("assigned_user_id")
-        
     if update_fields.get("assignedUserId") and not update_fields.get("assignedUserName"):
         account = db["accounts"].find_one({"id": str(update_fields["assignedUserId"])})
         if account:
             update_fields["assignedUserName"] = account.get("name")
-            
     if update_fields:
         db["devices"].update_one(
             {"$or": [{"id": device_id}, {"device_id": device_id}]},
             {"$set": update_fields},
         )
-        
-    updated_doc = db["devices"].find_one(
-        {"$or": [{"id": device_id}, {"device_id": device_id}]}
-    )
+    updated_doc = db["devices"].find_one({"$or": [{"id": device_id}, {"device_id": device_id}]})
     return DeviceResponse(
         id=str(updated_doc.get("id", updated_doc.get("device_id"))),
         device_id=updated_doc.get("device_id"),
@@ -738,22 +702,20 @@ def _process_device_update(device_id: str, payload: DeviceUpdatePayload):
 
 @app.put("/api/devices/{device_id}", response_model=DeviceResponse)
 @app.put("/api/devices/{device_id}/", response_model=DeviceResponse)
-def update_device_put(device_id: str, payload: DeviceUpdatePayload, current_user: dict = Depends(require_super_admin)):
+def update_device_put(device_id: str, payload: DeviceUpdatePayload, current_user: dict = Depends(get_current_user)):
     return _process_device_update(device_id, payload)
 
 @app.patch("/api/devices/{device_id}", response_model=DeviceResponse)
 @app.patch("/api/devices/{device_id}/", response_model=DeviceResponse)
-def update_device_patch(device_id: str, payload: DeviceUpdatePayload, current_user: dict = Depends(require_super_admin)):
+def update_device_patch(device_id: str, payload: DeviceUpdatePayload, current_user: dict = Depends(get_current_user)):
     return _process_device_update(device_id, payload)
 
 @app.delete("/api/devices/{device_id}", status_code=status.HTTP_200_OK)
 @app.delete("/api/devices/{device_id}/", status_code=status.HTTP_200_OK)
-def delete_device(device_id: str, current_user: dict = Depends(require_super_admin)):
+def delete_device(device_id: str, current_user: dict = Depends(get_current_user)):
     if db is None:
         raise HTTPException(status_code=500, detail="Database connection is unavailable.")
-    result = db["devices"].delete_one(
-        {"$or": [{"id": device_id}, {"device_id": device_id}]}
-    )
+    result = db["devices"].delete_one({"$or": [{"id": device_id}, {"device_id": device_id}]})
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Device not found.")
     return {"message": f"Device '{device_id}' deleted successfully."}
@@ -800,7 +762,7 @@ async def resolve_alert(alert_id: str, data: dict):
     try:
         is_resolved = data.get("is_resolved", True)
         result = await db.alerts.update_one(
-            {"_id": ObjectId(alert_id)},
+            {"id": ObjectId(alert_id)},
             {"$set": {"is_resolved": is_resolved}}
         )
         if result.matched_count == 0:
@@ -831,7 +793,6 @@ async def receive_telemetry(payload: TelemetryPayload):
     }
     ml_result = await predict_dissolved_oxygen(payload.device_id, sensor_record)
     predicted_do = ml_result.get("dissolved_oxygen_mg_L", round(estimated_do, 4))
-    
     telemetry_doc = {
         "device_id": payload.device_id,
         "temperature": payload.temperature,
@@ -846,7 +807,6 @@ async def receive_telemetry(payload: TelemetryPayload):
         "timestamp": now,
     }
     db["raw_telemetry"].insert_one(telemetry_doc)
-    
     log_doc = {
         "device_id": payload.device_id,
         "temperature": payload.temperature,
@@ -868,7 +828,7 @@ async def receive_telemetry(payload: TelemetryPayload):
 @app.get("/telemetry")
 def get_telemetry(
     limit: int = Query(100, ge=1, le=1000),
-    current_user: dict = Depends(require_super_admin)
+    current_user: dict = Depends(get_current_user)
 ):
     if db is None:
         raise HTTPException(status_code=500, detail="Database connection is unavailable.")
@@ -876,7 +836,7 @@ def get_telemetry(
         cursor = db["raw_telemetry"].find().sort("_id", -1).limit(limit)
         telemetry_records = []
         for record in cursor:
-            record["_id"] = str(record["_id"])
+            record["id"] = str(record["_id"])
             telemetry_records.append(record)
         return telemetry_records
     except Exception as e:
@@ -885,7 +845,7 @@ def get_telemetry(
 @app.get("/telemetry/latest")
 def get_latest_telemetry(
     device_id: Optional[str] = None,
-    current_user: dict = Depends(require_super_admin)
+    current_user: dict = Depends(get_current_user)
 ):
     if db is None:
         raise HTTPException(status_code=500, detail="Database connection is unavailable.")
@@ -906,7 +866,7 @@ def get_latest_telemetry(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"No telemetry data found for device '{device_id}'." if device_id else "No telemetry data found.",
             )
-        latest_record["_id"] = str(latest_record["_id"])
+        latest_record["id"] = str(latest_record["_id"])
         return latest_record
     except HTTPException:
         raise
@@ -917,7 +877,7 @@ def get_latest_telemetry(
 def get_telemetry_history(
     limit: int = Query(50, ge=1, le=500),
     device_id: Optional[str] = None,
-    current_user: dict = Depends(require_super_admin)
+    current_user: dict = Depends(get_current_user)
 ):
     if db is None:
         raise HTTPException(status_code=500, detail="Database connection is unavailable.")
@@ -926,7 +886,7 @@ def get_telemetry_history(
         cursor = db["raw_telemetry"].find(query).sort("_id", -1).limit(limit)
         history = []
         for record in cursor:
-            record["_id"] = str(record["_id"])
+            record["id"] = str(record["_id"])
             history.append(record)
         return history
     except Exception as e:
@@ -958,7 +918,7 @@ async def run_predict_endpoint(payload: TelemetryPayload):
     }
 
 @app.get("/predict")
-def get_latest_prediction(current_user: dict = Depends(require_super_admin)):
+def get_latest_prediction(current_user: dict = Depends(get_current_user)):
     if db is None:
         raise HTTPException(status_code=500, detail="Database connection is unavailable.")
     try:
@@ -970,7 +930,7 @@ def get_latest_prediction(current_user: dict = Depends(require_super_admin)):
                 "predictedDO": 7.0,
                 "status": "Stable",
             }
-        latest_record["_id"] = str(latest_record["_id"])
+        latest_record["id"] = str(latest_record["_id"])
         return latest_record
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -989,14 +949,13 @@ def retrain_model_pipeline(
             df = pd.read_excel(file_path)
         else:
             df = pd.read_csv(file_path)
-            
-        df = df.dropna(subset=["temperature", "ph", "DO(mg/L)"]).copy()
+        df = df.dropna(subset=["temperature", "ph", "DO (mg/L)"]).copy()
         df = df.rename(
             columns={
                 "ph": "pH",
                 "temperature": "Temperature",
                 "turbidity": "Turbidity",
-                "DO(mg/L)": "DO",
+                "DO (mg/L)": "DO",
             }
         )
         if "timestamp" in df.columns:
@@ -1012,7 +971,7 @@ def retrain_model_pipeline(
         else:
             df["sin_time"] = 0.0
             df["cos_time"] = 0.0
-            
+
         df["DO_smooth"] = df["DO"].rolling(window=5, min_periods=1).mean()
         df["DO_lag1"] = df["DO_smooth"].shift(1)
         df["DO_lag2"] = df["DO_smooth"].shift(2)
@@ -1024,34 +983,33 @@ def retrain_model_pipeline(
         df["temp_roll10_mean"] = df["Temperature"].rolling(10, min_periods=1).mean()
         df["ph_roll10_mean"] = df["pH"].rolling(10, min_periods=1).mean()
         df["ph_temp_ratio"] = df["pH"] / (df["Temperature"] + 1e-5)
-        
+
         df_model = df.dropna(
             subset=["DO_lag1", "DO_lag2", "DO_lag3", "DO_smooth"]
         ).reset_index(drop=True)
-        
         target_col = "DO_smooth"
         for col in FEATURE_COLUMNS + [target_col]:
             df_model[col] = pd.to_numeric(df_model[col], errors="coerce").fillna(0)
-            
+
         X_raw = df_model[FEATURE_COLUMNS].values
         y_raw = df_model[target_col].values
-        
+
         new_scaler_x = StandardScaler()
         new_scaler_y = StandardScaler()
         X_scaled = new_scaler_x.fit_transform(X_raw)
         y_scaled = new_scaler_y.fit_transform(y_raw.reshape(-1, 1))
-        
+
         X_seq, y_seq = [], []
         for i in range(len(X_scaled) - TIME_STEPS):
-            X_seq.append(X_scaled[i:(i + TIME_STEPS)])
+            X_seq.append(X_scaled[i : (i + TIME_STEPS)])
             y_seq.append(y_scaled[i + TIME_STEPS])
         X_seq = np.array(X_seq)
         y_seq = np.array(y_seq)
-        
+
         X_train, X_test, y_train, y_test = train_test_split(
             X_seq, y_seq, test_size=0.2, random_state=42
         )
-        
+
         new_lstm_model = Sequential(
             [
                 Input(shape=(TIME_STEPS, len(FEATURE_COLUMNS))),
@@ -1072,40 +1030,39 @@ def retrain_model_pipeline(
             validation_split=0.1,
             verbose=0,
         )
-        
+
         lstm_train_preds = new_lstm_model.predict(X_train, verbose=0)
         lstm_test_preds = new_lstm_model.predict(X_test, verbose=0)
-        
+
         X_train_flat = X_train[:, -1, :]
         X_test_flat = X_test[:, -1, :]
-        
+
         rf_X_train = np.hstack((X_train_flat, lstm_train_preds))
         rf_X_test = np.hstack((X_test_flat, lstm_test_preds))
-        
+
         new_rf_model = RandomForestRegressor(
             n_estimators=500, max_depth=15, min_samples_split=2, random_state=42
         )
         new_rf_model.fit(rf_X_train, y_train.ravel())
-        
+
         rf_preds_scaled = new_rf_model.predict(rf_X_test)
         final_preds = new_scaler_y.inverse_transform(rf_preds_scaled.reshape(-1, 1))
         y_actual = new_scaler_y.inverse_transform(y_test)
-        
+
         rmse = float(np.sqrt(mean_squared_error(y_actual, final_preds)))
         mae = float(mean_absolute_error(y_actual, final_preds))
         r2 = float(r2_score(y_actual, final_preds))
-        
+
         new_lstm_model.save(LSTM_MODEL_FILE)
         joblib.dump(new_rf_model, RF_MODEL_FILE)
         joblib.dump(new_scaler_x, SCALER_X_FILE)
         joblib.dump(new_scaler_y, SCALER_Y_FILE)
-        
-        global lstm_model, rf_model, scaler_x, scaler_y
+
         lstm_model = new_lstm_model
         rf_model = new_rf_model
         scaler_x = new_scaler_x
         scaler_y = new_scaler_y
-        
+
         return {
             "status": "success",
             "message": "Model retrained and saved successfully.",
