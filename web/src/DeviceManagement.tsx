@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import type { FormEvent } from 'react';
 import {
   Plus,
   Trash2,
@@ -54,8 +55,16 @@ const BASE_URL =
   import.meta.env.VITE_API_BASE_URL ||
   import.meta.env.VITE_API_URL ||
   'https://aquasense-backend-osmi.onrender.com';
-
 const API_BASE_URL = BASE_URL.replace(/\/$/, '');
+
+// Helper to retrieve auth headers
+const getAuthHeaders = () => {
+  const token = localStorage.getItem('token') || localStorage.getItem('access_token');
+  return {
+    'Content-Type': 'application/json',
+    ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+  };
+};
 
 export default function DeviceManagement({
   devices: propDevices,
@@ -70,7 +79,6 @@ export default function DeviceManagement({
   const [searchTerm, setSearchTerm] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingDeviceId, setEditingDeviceId] = useState<string | null>(null);
-
   const [newDeviceId, setNewDeviceId] = useState('');
   const [newDeviceName, setNewDeviceName] = useState('');
   const [newLocation, setNewLocation] = useState('');
@@ -89,7 +97,9 @@ export default function DeviceManagement({
   // Fetch accounts from FastAPI if not provided via props
   useEffect(() => {
     if (!propAccounts || propAccounts.length === 0) {
-      fetch(`${API_BASE_URL}/api/accounts`)
+      fetch(`${API_BASE_URL}/api/accounts`, {
+        headers: getAuthHeaders()
+      })
         .then((res) => res.json())
         .then((data) => {
           if (Array.isArray(data)) {
@@ -103,13 +113,12 @@ export default function DeviceManagement({
   // Fetch devices from FastAPI on mount
   const loadDevicesFromBackend = async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/api/devices`);
+      const response = await fetch(`${API_BASE_URL}/api/devices`, {
+        headers: getAuthHeaders()
+      });
       if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-      
       const data = await response.json();
-      
       if (Array.isArray(data)) {
-        // Map backend schema to FloaterNode structure
         const mappedDevices: FloaterNode[] = data.map((item: any) => ({
           id: String(item.id || item.device_id),
           device_id: item.device_id || item.id,
@@ -117,8 +126,8 @@ export default function DeviceManagement({
           location: item.location || 'Unassigned Field Station',
           color: item.color || '#22c55e',
           status: item.status || 'Online',
-          assignedUserId: item.assigned_user_id || item.assigned_user || undefined,
-          assignedUserName: item.assigned_user_name || undefined,
+          assignedUserId: item.assignedUserId || item.assigned_user || undefined,
+          assignedUserName: item.assignedUserName || item.assigned_user_name || undefined,
           metrics: {
             ph: item.metrics?.ph ?? item.ph ?? 7.0,
             temperature: item.metrics?.temperature ?? item.temperature ?? 25.0,
@@ -147,7 +156,8 @@ export default function DeviceManagement({
       dev.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
       dev.device_id.toLowerCase().includes(searchTerm.toLowerCase()) ||
       dev.location.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (dev.assignedUserName && dev.assignedUserName.toLowerCase().includes(searchTerm.toLowerCase()))
+      (dev.assignedUserName &&
+        dev.assignedUserName.toLowerCase().includes(searchTerm.toLowerCase()))
   );
 
   const handleOpenAddModal = () => {
@@ -164,20 +174,17 @@ export default function DeviceManagement({
     setNewDeviceId(device.device_id);
     setNewDeviceName(device.name);
     setNewLocation(device.location);
-    
     let currentUserId = device.assignedUserId;
     if (!currentUserId && device.assignedUserName) {
       const match = farmerAccounts.find((f) => f.name === device.assignedUserName);
       if (match) currentUserId = match.id;
     }
-    
     setSelectedUserId(currentUserId !== undefined && currentUserId !== null ? String(currentUserId) : '');
     setIsModalOpen(true);
   };
 
   const handleFarmerSelect = (userId: string) => {
     setSelectedUserId(userId);
-    
     const selectedFarmer = farmerAccounts.find((acc) => String(acc.id) === String(userId));
     if (selectedFarmer && selectedFarmer.location) {
       setNewLocation(selectedFarmer.location);
@@ -186,12 +193,11 @@ export default function DeviceManagement({
 
   const handleDeleteDevice = async (id: string) => {
     if (!window.confirm('Are you sure you want to remove this node?')) return;
-
     try {
       const response = await fetch(`${API_BASE_URL}/api/devices/${id}`, {
-        method: 'DELETE'
+        method: 'DELETE',
+        headers: getAuthHeaders()
       });
-
       if (response.ok) {
         setDevices((prev) => prev.filter((d) => d.id !== id));
         if (onRemoveDevice) onRemoveDevice(id);
@@ -204,18 +210,16 @@ export default function DeviceManagement({
     }
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const deviceId = newDeviceId.trim();
     const deviceName = newDeviceName.trim();
     const location = newLocation.trim() || 'Unassigned Field Station';
-
     if (!deviceId || !deviceName || isSubmitting) return;
 
     setIsSubmitting(true);
-
     const assignedUser = farmerAccounts.find((acc) => String(acc.id) === String(selectedUserId));
-
+    
     const updatedPayload: FloaterNode = {
       id: editingDeviceId || deviceId,
       device_id: deviceId,
@@ -239,48 +243,39 @@ export default function DeviceManagement({
       if (editingDeviceId) {
         const response = await fetch(`${API_BASE_URL}/api/devices/${editingDeviceId}`, {
           method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
+          headers: getAuthHeaders(),
           body: backendBody
         });
-
         if (!response.ok) {
           throw new Error(`FastAPI returned status ${response.status}`);
         }
-
         setDevices((prev) =>
           prev.map((dev) => (dev.id === editingDeviceId ? updatedPayload : dev))
         );
-
         if (onEditDevice) onEditDevice(updatedPayload);
       } else {
         const duplicate = devices.some(
           (device) => device.device_id.toLowerCase() === deviceId.toLowerCase()
         );
-
         if (duplicate) {
           window.alert(`A device with ID "${deviceId}" is already registered.`);
           setIsSubmitting(false);
           return;
         }
-
         const response = await fetch(`${API_BASE_URL}/api/devices`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: getAuthHeaders(),
           body: backendBody
         });
-
         if (!response.ok) {
           throw new Error(`FastAPI returned status ${response.status}`);
         }
-
         const resData = await response.json();
         const createdNode: FloaterNode = {
           ...updatedPayload,
           id: String(resData.id || resData.device_id || deviceId)
         };
-
         setDevices((prev) => [...prev, createdNode]);
-
         if (onAddDevice) onAddDevice(createdNode);
       }
 
@@ -311,7 +306,6 @@ export default function DeviceManagement({
             style={styles.searchInput}
           />
         </div>
-
         <button type="button" onClick={handleOpenAddModal} style={styles.addButton}>
           <Plus size={18} color="#ffffff" />
           <span>Register New Node</span>
@@ -321,7 +315,7 @@ export default function DeviceManagement({
       {filteredDevices.length === 0 ? (
         <div style={styles.emptyContainer}>
           <Cpu size={40} color="#94a3b8" />
-          <h3 style={styles.emptyTitle}>No ESP32 Nodes Found</h3>
+          <h3 style={styles.emptyTitle}>NO ESP32 Nodes Found</h3>
           <p style={styles.emptySub}>Register a new hardware node or verify search parameters.</p>
         </div>
       ) : (
@@ -357,7 +351,6 @@ export default function DeviceManagement({
                   <MapPin size={14} color="#64748b" />
                   <span style={styles.locationText}>{device.location}</span>
                 </div>
-
                 <div style={styles.userRow}>
                   <User size={14} color="#0284c7" />
                   <span style={styles.userText}>
@@ -403,7 +396,6 @@ export default function DeviceManagement({
                   <Wifi size={13} color="#16a34a" />
                   <span>Wi-Fi Direct</span>
                 </div>
-
                 <div style={{ display: 'flex', gap: '8px' }}>
                   <button
                     type="button"

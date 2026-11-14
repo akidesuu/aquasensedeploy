@@ -42,6 +42,8 @@ export interface AccountData {
   location?: string;
   role?: string;
   status?: string;
+  password?: string;
+  createdAt?: string;
 }
 
 interface AccountManagementProps {
@@ -65,8 +67,16 @@ const BASE_URL =
   import.meta.env.VITE_API_BASE_URL ||
   import.meta.env.VITE_API_URL ||
   'https://aquasense-backend-osmi.onrender.com';
-
 const API_BASE_URL = `${BASE_URL.replace(/\/$/, '')}/api/accounts`;
+
+// Helper to retrieve auth headers
+const getAuthHeaders = () => {
+  const token = localStorage.getItem('token') || localStorage.getItem('access_token');
+  return {
+    'Content-Type': 'application/json',
+    ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+  };
+};
 
 const EMPTY_FORM: AccountForm = {
   id: '',
@@ -79,7 +89,7 @@ const EMPTY_FORM: AccountForm = {
 };
 
 const formatDateTime = (date: Date) => {
-  return date.toLocaleString([], {
+  return date.toLocaleString(undefined, {
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
@@ -95,29 +105,27 @@ export default function AccountManagement({
 }: AccountManagementProps) {
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
-
   const [search, setSearch] = useState('');
   const [roleFilter, setRoleFilter] = useState<'All' | AccountRole>('All');
   const [statusFilter, setStatusFilter] = useState<'All' | AccountStatus>('All');
-
   const [showModal, setShowModal] = useState(false);
   const [editingAccount, setEditingAccount] = useState<Account | null>(null);
   const [form, setForm] = useState<AccountForm>(EMPTY_FORM);
   const [showPassword, setShowPassword] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
-
   const [deleteTarget, setDeleteTarget] = useState<Account | null>(null);
-
   const [notice, setNotice] = useState<{
     type: 'success' | 'error';
     message: string;
   } | null>(null);
 
-  // Fetch Accounts on Mount
+  // Fetch Accounts on Mount with Authentication Headers
   const fetchAccounts = async () => {
     setIsLoading(true);
     try {
-      const response = await fetch(API_BASE_URL);
+      const response = await fetch(API_BASE_URL, {
+        headers: getAuthHeaders()
+      });
       if (!response.ok) throw new Error('Failed to fetch accounts.');
       const data: Account[] = await response.json();
       setAccounts(data);
@@ -134,7 +142,6 @@ export default function AccountManagement({
 
   const filteredAccounts = useMemo(() => {
     const keyword = search.trim().toLowerCase();
-
     return accounts.filter((account) => {
       const matchesSearch =
         !keyword ||
@@ -142,10 +149,8 @@ export default function AccountManagement({
         account.name.toLowerCase().includes(keyword) ||
         account.email.toLowerCase().includes(keyword) ||
         account.location.toLowerCase().includes(keyword);
-
       const matchesRole = roleFilter === 'All' || account.role === roleFilter;
       const matchesStatus = statusFilter === 'All' || (account.status ?? 'Active') === statusFilter;
-
       return matchesSearch && matchesRole && matchesStatus;
     });
   }, [accounts, search, roleFilter, statusFilter]);
@@ -157,12 +162,10 @@ export default function AccountManagement({
   const openAddModal = () => {
     setEditingAccount(null);
     const nextNumber = accounts.length + 1;
-
     setForm({
       ...EMPTY_FORM,
       id: `USR-${String(nextNumber).padStart(3, '0')}`
     });
-
     setShowPassword(false);
     setNotice(null);
     setShowModal(true);
@@ -170,7 +173,6 @@ export default function AccountManagement({
 
   const openEditModal = (account: Account) => {
     setEditingAccount(account);
-
     setForm({
       id: account.id,
       name: account.name,
@@ -180,7 +182,6 @@ export default function AccountManagement({
       password: '',
       status: account.status ?? 'Active'
     });
-
     setShowPassword(false);
     setNotice(null);
     setShowModal(true);
@@ -215,22 +216,18 @@ export default function AccountManagement({
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-
     const id = form.id.trim();
     const name = form.name.trim();
     const email = form.email.trim();
     const location = form.location.trim();
-
     if (!id || !name || !email || !location) {
       showError('Please complete all required fields.');
       return;
     }
-
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    if (!/^[^\s]+@[^\s]+\.[^\s]+$/.test(email)) {
       showError('Please enter a valid email address.');
       return;
     }
-
     if (!editingAccount && form.password.length < 6) {
       showError('Password must contain at least 6 characters.');
       return;
@@ -248,20 +245,17 @@ export default function AccountManagement({
     };
 
     setIsSubmitting(true);
-
     try {
       if (editingAccount) {
         const response = await fetch(`${API_BASE_URL}/${editingAccount.id}`, {
           method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
+          headers: getAuthHeaders(),
           body: JSON.stringify(payload)
         });
-
         if (!response.ok) {
           const errData = await response.json();
           throw new Error(errData.detail || 'Failed to update account.');
         }
-
         const updated: Account = await response.json();
         setAccounts((prev) =>
           prev.map((acc) => (acc.id === editingAccount.id ? updated : acc))
@@ -271,21 +265,18 @@ export default function AccountManagement({
       } else {
         const response = await fetch(API_BASE_URL, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: getAuthHeaders(),
           body: JSON.stringify(payload)
         });
-
         if (!response.ok) {
           const errData = await response.json();
           throw new Error(errData.detail || 'Failed to create account.');
         }
-
         const created: Account = await response.json();
         setAccounts((prev) => [created, ...prev]);
         showSuccess(`Account "${name}" created successfully.`);
         if (onAddAccount) onAddAccount(created);
       }
-
       closeModal();
     } catch (err: any) {
       showError(err.message || 'Failed to persist account changes.');
@@ -296,20 +287,17 @@ export default function AccountManagement({
 
   const confirmDelete = async () => {
     if (!deleteTarget) return;
-
     const deletedId = deleteTarget.id;
     const deletedName = deleteTarget.name;
-
     try {
       const response = await fetch(`${API_BASE_URL}/${deletedId}`, {
-        method: 'DELETE'
+        method: 'DELETE',
+        headers: getAuthHeaders()
       });
-
       if (!response.ok) {
         const errData = await response.json();
         throw new Error(errData.detail || 'Failed to delete account.');
       }
-
       setAccounts((prev) => prev.filter((acc) => acc.id !== deletedId));
       showSuccess(`Account "${deletedName}" was removed.`);
       if (onDeleteAccount) onDeleteAccount(deletedId);
@@ -329,19 +317,12 @@ export default function AccountManagement({
             <ShieldCheck size={14} />
             AQUASENSE CONTROL PANEL
           </div>
-
           <h1 style={styles.title}>Account Management</h1>
-
           <p style={styles.subtitle}>
             Register, provision, and control role-based access for Farmers, System Admins, and Super Administrators.
           </p>
         </div>
-
-        <button
-          type="button"
-          onClick={openAddModal}
-          style={styles.primaryButton}
-        >
+        <button type="button" onClick={openAddModal} style={styles.primaryButton}>
           <UserPlus size={18} />
           Add New Account
         </button>
@@ -355,11 +336,7 @@ export default function AccountManagement({
             ...(notice.type === 'success' ? styles.successNotice : styles.errorNotice)
           }}
         >
-          {notice.type === 'success' ? (
-            <CheckCircle2 size={18} />
-          ) : (
-            <AlertTriangle size={18} />
-          )}
+          {notice.type === 'success' ? <CheckCircle2 size={18} /> : <AlertTriangle size={18} />}
           <span>{notice.message}</span>
         </div>
       )}
@@ -375,7 +352,6 @@ export default function AccountManagement({
             <div style={styles.statValue}>{accounts.length}</div>
           </div>
         </div>
-
         <div style={styles.statCard}>
           <div style={{ ...styles.statIcon, background: '#ecfdf5', color: '#047857' }}>
             <User size={21} />
@@ -385,7 +361,6 @@ export default function AccountManagement({
             <div style={styles.statValue}>{farmerCount}</div>
           </div>
         </div>
-
         <div style={styles.statCard}>
           <div style={{ ...styles.statIcon, background: '#f0f9ff', color: '#0284c7' }}>
             <ShieldCheck size={21} />
@@ -395,7 +370,6 @@ export default function AccountManagement({
             <div style={styles.statValue}>{adminCount}</div>
           </div>
         </div>
-
         <div style={styles.statCard}>
           <div style={{ ...styles.statIcon, background: '#f3e8ff', color: '#7e22ce' }}>
             <Crown size={21} />
@@ -429,13 +403,10 @@ export default function AccountManagement({
               </button>
             )}
           </div>
-
           <div style={styles.filterGroup}>
             <select
               value={roleFilter}
-              onChange={(event) =>
-                setRoleFilter(event.target.value as 'All' | AccountRole)
-              }
+              onChange={(event) => setRoleFilter(event.target.value as 'All' | AccountRole)}
               className="aquasense-account-filter"
               style={styles.filterSelect}
             >
@@ -444,12 +415,9 @@ export default function AccountManagement({
               <option value="Admin">Admin</option>
               <option value="Super Admin">Super Admin</option>
             </select>
-
             <select
               value={statusFilter}
-              onChange={(event) =>
-                setStatusFilter(event.target.value as 'All' | AccountStatus)
-              }
+              onChange={(event) => setStatusFilter(event.target.value as 'All' | AccountStatus)}
               className="aquasense-account-filter"
               style={styles.filterSelect}
             >
@@ -473,7 +441,6 @@ export default function AccountManagement({
                 <th style={{ ...styles.th, textAlign: 'right' }}>ACTIONS</th>
               </tr>
             </thead>
-
             <tbody>
               {isLoading ? (
                 <tr>
@@ -487,7 +454,7 @@ export default function AccountManagement({
               ) : filteredAccounts.length === 0 ? (
                 <tr>
                   <td colSpan={6} style={styles.emptyCell}>
-                    <Users size={34} color="#94a3b8" />
+                    <Users size={34} color="#64748b" />
                     <strong style={{ display: 'block', marginTop: 8 }}>
                       No matching accounts found
                     </strong>
@@ -513,7 +480,6 @@ export default function AccountManagement({
                         >
                           {account.name.charAt(0).toUpperCase()}
                         </div>
-
                         <div style={{ minWidth: 0 }}>
                           <div style={styles.accountName}>{account.name}</div>
                           <div style={styles.accountEmail}>
@@ -524,14 +490,12 @@ export default function AccountManagement({
                         </div>
                       </div>
                     </td>
-
                     <td style={styles.td}>
                       <div style={styles.locationCell}>
                         <MapPin size={15} color="#64748b" />
                         <span>{account.location}</span>
                       </div>
                     </td>
-
                     <td style={styles.td}>
                       <span
                         style={{
@@ -543,47 +507,34 @@ export default function AccountManagement({
                             : styles.farmerBadge)
                         }}
                       >
-                        {account.role === 'Super Admin' && (
-                          <Crown size={12} style={{ marginRight: 4 }} />
-                        )}
-                        {account.role === 'Admin' && (
-                          <ShieldCheck size={12} style={{ marginRight: 4 }} />
-                        )}
-                        {account.role === 'Farmer' && (
-                          <User size={12} style={{ marginRight: 4 }} />
-                        )}
+                        {account.role === 'Super Admin' && <Crown size={12} style={{ marginRight: 4 }} />}
+                        {account.role === 'Admin' && <ShieldCheck size={12} style={{ marginRight: 4 }} />}
+                        {account.role === 'Farmer' && <User size={12} style={{ marginRight: 4 }} />}
                         {account.role}
                       </span>
                     </td>
-
                     <td style={styles.td}>
                       <div style={styles.dateCell}>
                         <Clock3 size={14} color="#64748b" />
                         {account.createdAt}
                       </div>
                     </td>
-
                     <td style={styles.td}>
                       <span
                         style={{
                           ...styles.statusBadge,
-                          ...(account.status === 'Inactive'
-                            ? styles.inactiveBadge
-                            : styles.activeBadge)
+                          ...(account.status === 'Inactive' ? styles.inactiveBadge : styles.activeBadge)
                         }}
                       >
                         <span
                           style={{
                             ...styles.statusDot,
-                            ...(account.status === 'Inactive'
-                              ? styles.inactiveDot
-                              : styles.activeDot)
+                            ...(account.status === 'Inactive' ? styles.inactiveDot : styles.activeDot)
                           }}
                         />
                         {account.status ?? 'Active'}
                       </span>
                     </td>
-
                     <td style={styles.td}>
                       <div style={styles.actions}>
                         <button
@@ -595,7 +546,6 @@ export default function AccountManagement({
                         >
                           <Pencil size={15} />
                         </button>
-
                         <button
                           type="button"
                           title="Delete Account"
@@ -613,7 +563,6 @@ export default function AccountManagement({
             </tbody>
           </table>
         </div>
-
         <div style={styles.footer}>
           Showing <strong>{filteredAccounts.length}</strong> of <strong>{accounts.length}</strong> registered accounts
         </div>
@@ -640,12 +589,10 @@ export default function AccountManagement({
                 <div style={styles.modalIcon}>
                   {editingAccount ? <Pencil size={20} /> : <UserPlus size={20} />}
                 </div>
-
                 <div>
                   <h2 id="account-modal-title" style={styles.modalTitle}>
                     {editingAccount ? 'Edit Account Credentials' : 'Create New Account'}
                   </h2>
-
                   <p style={styles.modalSubtitle}>
                     {editingAccount
                       ? 'Modify permissions, identity details, or update system password.'
@@ -653,7 +600,6 @@ export default function AccountManagement({
                   </p>
                 </div>
               </div>
-
               <button
                 type="button"
                 onClick={closeModal}
@@ -672,11 +618,7 @@ export default function AccountManagement({
                   ...(notice.type === 'success' ? styles.successNotice : styles.errorNotice)
                 }}
               >
-                {notice.type === 'success' ? (
-                  <CheckCircle2 size={17} />
-                ) : (
-                  <AlertTriangle size={17} />
-                )}
+                {notice.type === 'success' ? <CheckCircle2 size={17} /> : <AlertTriangle size={17} />}
                 <span>{notice.message}</span>
               </div>
             )}
@@ -697,7 +639,6 @@ export default function AccountManagement({
                     required
                   />
                 </div>
-
                 {/* Name Field */}
                 <div style={styles.formGroup}>
                   <label style={styles.label}>
@@ -711,7 +652,6 @@ export default function AccountManagement({
                     required
                   />
                 </div>
-
                 {/* Email Field */}
                 <div style={styles.formGroup}>
                   <label style={styles.label}>
@@ -726,7 +666,6 @@ export default function AccountManagement({
                     required
                   />
                 </div>
-
                 {/* Location Field */}
                 <div style={styles.formGroup}>
                   <label style={styles.label}>
@@ -740,7 +679,6 @@ export default function AccountManagement({
                     required
                   />
                 </div>
-
                 {/* Role Field */}
                 <div style={styles.formGroup}>
                   <label style={styles.label}>
@@ -748,9 +686,7 @@ export default function AccountManagement({
                   </label>
                   <select
                     value={form.role}
-                    onChange={(event) =>
-                      updateForm('role', event.target.value as AccountRole)
-                    }
+                    onChange={(event) => updateForm('role', event.target.value as AccountRole)}
                     style={styles.input}
                   >
                     <option value="Farmer">Farmer (Telemetry & Readings View)</option>
@@ -758,32 +694,26 @@ export default function AccountManagement({
                     <option value="Super Admin">Super Admin (Full Administrative Authority)</option>
                   </select>
                 </div>
-
                 {/* Status Field */}
                 <div style={styles.formGroup}>
                   <label style={styles.label}>Account Status</label>
                   <select
                     value={form.status}
-                    onChange={(event) =>
-                      updateForm('status', event.target.value as AccountStatus)
-                    }
+                    onChange={(event) => updateForm('status', event.target.value as AccountStatus)}
                     style={styles.input}
                   >
                     <option value="Active">Active</option>
                     <option value="Inactive">Inactive</option>
                   </select>
                 </div>
-
                 {/* Password Input */}
                 <div style={{ ...styles.formGroup, gridColumn: '1 / -1' }}>
                   <label style={styles.label}>
                     {editingAccount ? 'New Password (Optional)' : 'Account Password'}{' '}
                     {!editingAccount && <span style={styles.requiredStar}>*</span>}
                   </label>
-
                   <div style={styles.passwordWrapper}>
                     <Lock size={17} color="#64748b" style={styles.passwordIcon} />
-
                     <input
                       type={showPassword ? 'text' : 'password'}
                       value={form.password}
@@ -801,7 +731,6 @@ export default function AccountManagement({
                       required={!editingAccount}
                       minLength={editingAccount ? 0 : 6}
                     />
-
                     <button
                       type="button"
                       onClick={() => setShowPassword((prev) => !prev)}
@@ -813,7 +742,6 @@ export default function AccountManagement({
                   </div>
                 </div>
               </div>
-
               <div style={styles.modalActions}>
                 <button
                   type="button"
@@ -823,7 +751,6 @@ export default function AccountManagement({
                 >
                   Cancel
                 </button>
-
                 <button type="submit" style={styles.saveButton} disabled={isSubmitting}>
                   {isSubmitting ? (
                     <RefreshCw size={17} className="animate-spin" />
@@ -850,15 +777,13 @@ export default function AccountManagement({
             <div style={styles.warningIcon}>
               <ShieldAlert size={26} color="#ef4444" />
             </div>
-
             <h2 id="delete-account-title" style={styles.deleteTitle}>
               Delete Account?
             </h2>
-
             <p style={styles.deleteText}>
-              Are you sure you want to permanently remove <strong>{deleteTarget.name}</strong> ({deleteTarget.email})? This operation will remove access privileges and cannot be undone.
+              Are you sure you want to permanently remove{' '}
+              <strong>{deleteTarget.name}</strong> ({deleteTarget.email})? This operation will remove access privileges and cannot be undone.
             </p>
-
             <div style={styles.deleteActions}>
               <button
                 type="button"
@@ -867,7 +792,6 @@ export default function AccountManagement({
               >
                 Cancel
               </button>
-
               <button
                 type="button"
                 onClick={confirmDelete}
