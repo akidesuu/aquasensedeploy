@@ -179,9 +179,10 @@ def get_current_user(
         )
 
 def require_super_admin(current_user: dict = Depends(get_current_user)) -> dict:
-    """Strict dependency restricting access exclusively to Super Admin accounts."""
+    """Strict dependency restricting access exclusively to Super Admin accounts with case-insensitivity."""
     role = str(current_user.get("role", "")).strip().lower()
-    if role != "super admin":
+    # Allow variations of super admin role strings
+    if role not in ["super admin", "super_admin", "superadmin"]:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Access Denied: Only Super Administrators are authorized to access this resource.",
@@ -417,9 +418,9 @@ def login_user(payload: UserAuthPayload):
             detail="Invalid email or password configuration.",
         )
     
-    # STRICT CASE-INSENSITIVE ROLE VERIFICATION[cite: 21]
+    # FLEXIBLE CASE-INSENSITIVE ROLE VERIFICATION
     user_role = str(user_record.get("role", "")).strip().lower()
-    if user_role != "super admin":
+    if user_role not in ["super admin", "super_admin", "superadmin"]:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Access Denied: Only Super Administrators are authorized to log in to this web dashboard.",
@@ -429,11 +430,10 @@ def login_user(payload: UserAuthPayload):
         subject=str(user_record.get("email")),
         extra_claims={
             "name": user_record.get("name", user_identifier),
-            "role": user_record.get("role", "Super Admin"),
+            "role": "Super Admin",  # Explicitly enforce standardized Super Admin casing
         },
     )
     
-    # Providing both 'access_token' and 'token' keys ensures zero conflicts with frontend variations[cite: 22]
     return {
         "status": "Authenticated",
         "username": user_record.get("name", user_identifier),
