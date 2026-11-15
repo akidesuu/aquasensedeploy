@@ -472,12 +472,17 @@ def get_me(current_user: dict = Depends(get_current_user)):
 def get_user_profile(user_id: str, current_user: dict = Depends(get_current_user)):
     if db is None:
         raise HTTPException(status_code=500, detail="Database connection is unavailable.")
-    user_doc = db["accounts"].find_one({"$or": [{"id": user_id}, {"email": user_id.lower()}]})
+    
+    query = {"$or": [{"id": user_id}, {"email": user_id.lower()}]}
+    if ObjectId.is_valid(user_id):
+        query["$or"].append({"_id": ObjectId(user_id)})
+        
+    user_doc = db["accounts"].find_one(query)
     if not user_doc:
         raise HTTPException(status_code=404, detail="User not found.")
     
     return {
-        "id": user_doc.get("id"),
+        "id": user_doc.get("id", str(user_doc.get("_id"))),
         "name": user_doc.get("name"),
         "email": user_doc.get("email"),
         "location": user_doc.get("location", "BonBon"),
@@ -490,9 +495,9 @@ def update_profile_image(user_id: str, payload: ProfileImagePayload, current_use
     if db is None:
         raise HTTPException(status_code=500, detail="Database connection is unavailable.")
     try:
-        query = {"id": user_id}
-        if not db["accounts"].find_one(query):
-            query = {"email": user_id.lower()}
+        query = {"$or": [{"id": user_id}, {"email": user_id.lower()}]}
+        if ObjectId.is_valid(user_id):
+            query["$or"].append({"_id": ObjectId(user_id)})
 
         result = db["accounts"].update_one(
             query,
@@ -503,7 +508,6 @@ def update_profile_image(user_id: str, payload: ProfileImagePayload, current_use
         return {"success": True, "message": "Profile image updated successfully in MongoDB."}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
-
 #
 # ACCOUNT MANAGEMENT ENDPOINTS (Super Admin Only)
 #

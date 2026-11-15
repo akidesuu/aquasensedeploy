@@ -35,7 +35,7 @@ const API_BASE_URL = 'https://aquasense-backend-osmi.onrender.com';
 const STORAGE_KEY_PROFILE_IMAGE = '@aquasense_farmer_profile_image';
 
 export default function ProfileScreen({ onLogout }: ProfileScreenProps) {
-  const { user } = useAuth();
+  const { user, token } = useAuth() as any;
   const [notificationsEnabled, setNotificationsEnabled] = useState<boolean>(true);
   const [criticalAlertsOnly, setCriticalAlertsOnly] = useState<boolean>(false);
   const [soundAlerts, setSoundAlerts] = useState<boolean>(true);
@@ -43,7 +43,7 @@ export default function ProfileScreen({ onLogout }: ProfileScreenProps) {
   const [isUploading, setIsUploading] = useState<boolean>(false);
 
   const typedUser = user as any;
-  const farmerId = typedUser?.id || typedUser?._id || typedUser?.userId || 'USR-002';
+  const farmerId = typedUser?.id || typedUser?._id || typedUser?.userId || typedUser?.email || 'USR-002';
   const farmerName = typedUser?.name || 'John Rey Nillama';
   const farmerEmail = typedUser?.email || 'johnrey@aquasense.com';
   const farmerRole = typedUser?.role || 'Farmer';
@@ -58,13 +58,18 @@ export default function ProfileScreen({ onLogout }: ProfileScreenProps) {
           setProfileImageUri(savedImage);
         }
 
-        // Optional: Fetch latest profile image from MongoDB backend
-        const response = await fetch(`${API_BASE_URL}/api/users/${farmerId}`);
-        if (response.ok) {
-          const userData = await response.json();
-          if (userData.profile_image) {
-            setProfileImageUri(userData.profile_image);
-            await AsyncStorage.setItem(STORAGE_KEY_PROFILE_IMAGE, userData.profile_image);
+        if (farmerId) {
+          const response = await fetch(`${API_BASE_URL}/api/users/${farmerId}`, {
+            headers: {
+              ...(token ? { Authorization: `Bearer ${token}` } : {}),
+            },
+          });
+          if (response.ok) {
+            const userData = await response.json();
+            if (userData.profile_image) {
+              setProfileImageUri(userData.profile_image);
+              await AsyncStorage.setItem(STORAGE_KEY_PROFILE_IMAGE, userData.profile_image);
+            }
           }
         }
       } catch (err) {
@@ -72,9 +77,9 @@ export default function ProfileScreen({ onLogout }: ProfileScreenProps) {
       }
     };
     loadSavedImage();
-  }, [farmerId]);
+  }, [farmerId, token]);
 
-  // Handle picking image, converting to Base64, saving to AsyncStorage & MongoDB
+  // Handle picking image, compressing, converting to Base64, and syncing to MongoDB
   const handlePickImage = async () => {
     try {
       const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -87,7 +92,7 @@ export default function ProfileScreen({ onLogout }: ProfileScreenProps) {
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
         allowsEditing: true,
         aspect: [1, 1],
-        quality: 0.6,
+        quality: 0.4, // Reduced quality to keep base64 payload small and fast
       });
 
       if (!pickerResult.canceled && pickerResult.assets && pickerResult.assets.length > 0) {
@@ -100,19 +105,27 @@ export default function ProfileScreen({ onLogout }: ProfileScreenProps) {
         });
         const imagePayload = `data:image/jpeg;base64,${base64Image}`;
 
-        // Save locally instantly
+        // Save locally instantly for immediate UI feedback
         setProfileImageUri(imagePayload);
         await AsyncStorage.setItem(STORAGE_KEY_PROFILE_IMAGE, imagePayload);
 
-        // Save to MongoDB database via backend API
+        // Sync with MongoDB backend API
         try {
-          await fetch(`${API_BASE_URL}/api/users/${farmerId}/profile-image`, {
+          const apiRes = await fetch(`${API_BASE_URL}/api/users/${farmerId}/profile-image`, {
             method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+              'Content-Type': 'application/json',
+              ...(token ? { Authorization: `Bearer ${token}` } : {}),
+            },
             body: JSON.stringify({ profile_image: imagePayload }),
           });
+
+          if (!apiRes.ok) {
+            const errData = await apiRes.json().catch(() => ({}));
+            console.warn('Backend image sync warning:', errData);
+          }
         } catch (apiErr) {
-          console.warn('Failed to sync profile image to database (saved locally):', apiErr);
+          console.warn('Network error syncing profile image to database (saved locally):', apiErr);
         }
       }
     } catch (error) {
