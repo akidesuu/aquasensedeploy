@@ -19,10 +19,12 @@ from keras.layers import Dense, Dropout, Input, LSTM
 from keras.models import Sequential, load_model
 from pydantic import BaseModel, Field
 from pymongo import MongoClient
+from bson import ObjectId
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
+from fastapi import APIRouter, HTTPException
 
 #
 # 1. JWT CONFIGURATION
@@ -185,7 +187,6 @@ def get_current_user(
         )
 
 def require_super_admin(current_user: dict = Depends(get_current_user)) -> dict:
-    """Strict dependency ensuring account is a Super Admin based on DB or token record."""
     email = current_user.get("sub")
     role = str(current_user.get("role", "")).strip().lower()
     
@@ -288,6 +289,9 @@ class UserAuthPayload(BaseModel):
     username: Optional[str] = Field(None, json_schema_extra={"example": "Ajboy Pelias"})
     password: str = Field(..., json_schema_extra={"example": "AquaSecure2026!"})
 
+class ProfileImagePayload(BaseModel):
+    profile_image: str
+
 class AccountCreatePayload(BaseModel):
     id: str = Field(..., json_schema_extra={"example": "USR-001"})
     name: str = Field(..., json_schema_extra={"example": "Akimitsu Admin"})
@@ -359,7 +363,7 @@ async def root_check(request: Request):
     return HTMLResponse("<h2>AquaSense Core & ML API Active</h2>")
 
 #
-# AUTHENTICATION ENDPOINTS
+# AUTHENTICATION & USER PROFILE ENDPOINTS
 #
 @app.post("/auth/register", status_code=status.HTTP_201_CREATED)
 def register_user(payload: UserAuthPayload):
@@ -398,7 +402,7 @@ def register_user(payload: UserAuthPayload):
                 if "@" in user_identifier
                 else f"{user_identifier}@aquasense.local"
             ),
-            "location": "Unassigned",
+            "location": "BonBon",
             "role": UserRole.FARMER.value,
             "status": AccountStatus.ACTIVE.value,
             "password_hash": hash_password(payload.password),
@@ -463,6 +467,42 @@ def get_me(current_user: dict = Depends(get_current_user)):
         "role": current_user.get("role"),
         "name": current_user.get("name"),
     }
+
+@app.get("/api/users/{user_id}")
+def get_user_profile(user_id: str, current_user: dict = Depends(get_current_user)):
+    if db is None:
+        raise HTTPException(status_code=500, detail="Database connection is unavailable.")
+    user_doc = db["accounts"].find_one({"$or": [{"id": user_id}, {"email": user_id.lower()}]})
+    if not user_doc:
+        raise HTTPException(status_code=404, detail="User not found.")
+    
+    return {
+        "id": user_doc.get("id"),
+        "name": user_doc.get("name"),
+        "email": user_doc.get("email"),
+        "location": user_doc.get("location", "BonBon"),
+        "role": user_doc.get("role", "Farmer"),
+        "profile_image": user_doc.get("profile_image", None)
+    }
+
+@app.put("/api/users/{user_id}/profile-image")
+def update_profile_image(user_id: str, payload: ProfileImagePayload, current_user: dict = Depends(get_current_user)):
+    if db is None:
+        raise HTTPException(status_code=500, detail="Database connection is unavailable.")
+    try:
+        query = {"id": user_id}
+        if not db["accounts"].find_one(query):
+            query = {"email": user_id.lower()}
+
+        result = db["accounts"].update_one(
+            query,
+            {"$set": {"profile_image": payload.profile_image}}
+        )
+        if result.matched_count == 0:
+            raise HTTPException(status_code=404, detail="User not found.")
+        return {"success": True, "message": "Profile image updated successfully in MongoDB."}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 #
 # ACCOUNT MANAGEMENT ENDPOINTS (Super Admin Only)
@@ -583,7 +623,7 @@ def delete_account(account_id: str, current_user: dict = Depends(require_super_a
     return {"message": f"Account '{account_id}' deleted successfully."}
 
 #
-# DEVICE MANAGEMENT ENDPOINTS (Accessible to all authenticated users for viewing devices)
+# DEVICE MANAGEMENT ENDPOINTS
 #
 @app.get("/api/devices", response_model=List[DeviceResponse])
 @app.get("/api/devices/", response_model=List[DeviceResponse])
@@ -596,8 +636,6 @@ def get_all_devices(current_user: dict = Depends(get_current_user)):
     
     for doc in cursor:
         dev_id = doc.get("device_id") or doc.get("id", "")
-        
-        # Check latest telemetry packet to determine if device is Online or Offline
         latest_tel = db["raw_telemetry"].find_one({"device_id": dev_id}, sort=[("_id", -1)])
         
         status_val = doc.get("status", "Offline")
@@ -612,7 +650,7 @@ def get_all_devices(current_user: dict = Depends(get_current_user)):
                     except:
                         pass
                 if isinstance(tel_time, datetime):
-                    if (now_utc - tel_time).total_seconds() < 600:  # 10 minutes threshold
+                    if (now_utc - tel_time).total_seconds() < 600:
                         status_val = "Online"
             else:
                 status_val = "Online"
@@ -653,7 +691,7 @@ def register_device(payload: DeviceCreatePayload, current_user: dict = Depends(r
         account = db["accounts"].find_one({"$or": [{"id": clean_uid}, {"email": clean_uid}]})
         if account:
             assigned_name = account.get("name")
-            assigned_uid = account.get("id") # Normalize to account ID
+            assigned_uid = account.get("id")
 
     device_doc = {
         "id": dev_id,
@@ -794,7 +832,6 @@ async def get_alerts():
 
 @app.put("/api/alerts/{alert_id}/resolve")
 async def resolve_alert(alert_id: str, data: dict):
-    from bson import ObjectId
     try:
         is_resolved = data.get("is_resolved", True)
         result = await db.alerts.update_one(
@@ -978,7 +1015,6 @@ def retrain_model_pipeline(
     file_path: str = "aquasense_db.raw_telemetry.xlsx",
     current_user: dict = Depends(require_super_admin)
 ):
-    """Retrains the hybrid LSTM-RF model and saves the 4 model artifacts to disk."""
     global lstm_model, rf_model, scaler_x, scaler_y
     if not os.path.exists(file_path):
         raise HTTPException(status_code=404, detail=f"Dataset file '{file_path}' not found.")
