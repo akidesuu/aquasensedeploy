@@ -1,5 +1,6 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { StyleSheet, View, Text } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import Svg, { Polyline } from 'react-native-svg';
 import {
   Droplet,
@@ -31,19 +32,43 @@ interface ComponentsScreenProps {
   sparklineData: number[];
 }
 
+const STORAGE_KEY_MIN_DO = '@aquasense_min_do_threshold';
+const STORAGE_KEY_MAX_DO = '@aquasense_max_do_threshold';
+
 export default function ComponentsScreen({
   selectedDevice,
   sparklineData,
 }: ComponentsScreenProps) {
+  const [minLimit, setMinLimit] = useState<number>(4.0);
+  const [maxLimit, setMaxLimit] = useState<number>(10.0);
+
+  // Load custom threshold limits saved from AlertScreen
+  useEffect(() => {
+    const loadThresholds = async () => {
+      try {
+        const savedMin = await AsyncStorage.getItem(STORAGE_KEY_MIN_DO);
+        const savedMax = await AsyncStorage.getItem(STORAGE_KEY_MAX_DO);
+        if (savedMin !== null) setMinLimit(parseFloat(savedMin));
+        if (savedMax !== null) setMaxLimit(parseFloat(savedMax));
+      } catch (err) {
+        console.warn('Failed to load thresholds in ComponentsScreen:', err);
+      }
+    };
+    loadThresholds();
+  }, []);
+
   const metrics = selectedDevice?.metrics || {
-    ph: 7.20,
-    temperature: 28.0,
-    turbidity: 12.0,
+    ph: 7.33,
+    temperature: 24.1,
+    turbidity: 0.0,
     battery: 85,
-    predictedDo: 6.5
+    predictedDo: 5.25
   };
 
-  const isLowDo = metrics.predictedDo <= 4.0;
+  const currentDo = metrics.predictedDo;
+  const isBelowMin = currentDo <= minLimit;
+  const isAboveMax = currentDo >= maxLimit;
+  const isOutOfRange = isBelowMin || isAboveMax;
 
   const getPointsStr = () => {
     if (!sparklineData || sparklineData.length === 0) return '10,30 290,30';
@@ -54,26 +79,30 @@ export default function ComponentsScreen({
 
   return (
     <View style={styles.container}>
-      {isLowDo && (
+      {isOutOfRange && (
         <View style={styles.alertWarningBanner}>
           <View style={styles.alertIconBadge}>
             <ShieldAlert size={20} color="#dc2626" />
           </View>
           <View style={{ flex: 1 }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-              <Text style={styles.alertBannerHeadline}>CRITICAL THRESHOLD</Text>
+              <Text style={styles.alertBannerHeadline}>THRESHOLD BREACH</Text>
               <View style={styles.alertPillBadge}>
-                <Text style={styles.alertPillText}>LOW DO</Text>
+                <Text style={styles.alertPillText}>
+                  {isBelowMin ? 'LOW DO' : 'HIGH DO'}
+                </Text>
               </View>
             </View>
             <Text style={styles.alertBannerBodyCopy}>
-              Predicted DO level reached minimum threshold ({metrics.predictedDo.toFixed(1)} mg/L).
+              {isBelowMin
+                ? `DO level (${currentDo.toFixed(1)} mg/L) is at or below your minimum limit (${minLimit} mg/L).`
+                : `DO level (${currentDo.toFixed(1)} mg/L) is at or above your maximum limit (${maxLimit} mg/L).`}
             </Text>
           </View>
         </View>
       )}
 
-      <View style={[styles.heroPredictionCard, isLowDo && styles.heroPredictionCardWarning]}>
+      <View style={[styles.heroPredictionCard, isOutOfRange && styles.heroPredictionCardWarning]}>
         <View style={styles.heroBackgroundPattern} />
         
         <View style={styles.heroHeaderRow}>
@@ -87,20 +116,13 @@ export default function ComponentsScreen({
         </View>
 
         <Text style={styles.predictionCardPrimaryValue}>
-          {typeof metrics.predictedDo === 'number' ? metrics.predictedDo.toFixed(2) : metrics.predictedDo}{' '}
+          {typeof currentDo === 'number' ? currentDo.toFixed(2) : currentDo}{' '}
           <Text style={{ fontSize: 18, fontWeight: '600', color: 'rgba(255,255,255,0.8)' }}>mg/L</Text>
         </Text>
 
         <View style={styles.statusBadgeRow}>
-          <Text style={styles.statusLabelTitle}>Status: </Text>
-          <Text
-            style={[
-              styles.statusFlagText,
-              { color: isLowDo ? '#fca5a5' : '#4ade80' },
-            ]}
-          >
-            {isLowDo ? 'Warning' : 'Optimal'}
-          </Text>
+          <Text style={styles.statusLabelTitle}>Range Limit: </Text>
+          <Text style={styles.statusRangeText}>{minLimit} - {maxLimit} mg/L</Text>
         </View>
       </View>
 
@@ -320,7 +342,7 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255, 255, 255, 0.1)',
   },
   statusLabelTitle: { fontSize: 12, fontWeight: '600', color: 'rgba(255, 255, 255, 0.9)' },
-  statusFlagText: { fontSize: 12, fontWeight: '800', textTransform: 'uppercase' },
+  statusRangeText: { fontSize: 12, fontWeight: '800', color: '#ffffff' },
   bentoMetricsLayoutStructure: { flexDirection: 'row', gap: 12, width: '100%' },
   metricLeftVerticalStackColumn: { flex: 1.1, gap: 10 },
   brickHeaderRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },

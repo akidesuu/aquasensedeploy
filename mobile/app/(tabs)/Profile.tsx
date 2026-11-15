@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   StyleSheet,
   View,
@@ -7,17 +7,23 @@ import {
   TouchableOpacity,
   Switch,
   Alert,
+  Image,
+  ActivityIndicator,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as ImagePicker from 'expo-image-picker';
+import * as FileSystem from 'expo-file-system';
 import {
   User,
   Mail,
   Shield,
   Bell,
-  HardDrive,
   LogOut,
-  ChevronRight,
   Sliders,
   CheckCircle2,
+  Camera,
+  MapPin,
+  Volume2,
 } from 'lucide-react-native';
 import { useAuth } from '../_layout';
 
@@ -25,11 +31,97 @@ interface ProfileScreenProps {
   onLogout?: () => void;
 }
 
+const API_BASE_URL = 'https://aquasense-backend-osmi.onrender.com';
+const STORAGE_KEY_PROFILE_IMAGE = '@aquasense_farmer_profile_image';
+
 export default function ProfileScreen({ onLogout }: ProfileScreenProps) {
   const { user } = useAuth();
-  const [notificationsEnabled, setNotificationsEnabled] = useState(true);
-  const [criticalAlertsOnly, setCriticalAlertsOnly] = useState(false);
-  const [autoSync, setAutoSync] = useState(true);
+  const [notificationsEnabled, setNotificationsEnabled] = useState<boolean>(true);
+  const [criticalAlertsOnly, setCriticalAlertsOnly] = useState<boolean>(false);
+  const [soundAlerts, setSoundAlerts] = useState<boolean>(true);
+  const [profileImageUri, setProfileImageUri] = useState<string | null>(null);
+  const [isUploading, setIsUploading] = useState<boolean>(false);
+
+  const typedUser = user as any;
+  const farmerId = typedUser?.id || typedUser?._id || typedUser?.userId || 'USR-002';
+  const farmerName = typedUser?.name || 'John Rey Nillama';
+  const farmerEmail = typedUser?.email || 'johnrey@aquasense.com';
+  const farmerRole = typedUser?.role || 'Farmer';
+  const farmerLocation = typedUser?.location || 'BonBon';
+
+  // Load saved profile image from AsyncStorage or Backend on mount
+  useEffect(() => {
+    const loadSavedImage = async () => {
+      try {
+        const savedImage = await AsyncStorage.getItem(STORAGE_KEY_PROFILE_IMAGE);
+        if (savedImage) {
+          setProfileImageUri(savedImage);
+        }
+
+        // Optional: Fetch latest profile image from MongoDB backend
+        const response = await fetch(`${API_BASE_URL}/api/users/${farmerId}`);
+        if (response.ok) {
+          const userData = await response.json();
+          if (userData.profile_image) {
+            setProfileImageUri(userData.profile_image);
+            await AsyncStorage.setItem(STORAGE_KEY_PROFILE_IMAGE, userData.profile_image);
+          }
+        }
+      } catch (err) {
+        console.warn('Failed to load profile image:', err);
+      }
+    };
+    loadSavedImage();
+  }, [farmerId]);
+
+  // Handle picking image, converting to Base64, saving to AsyncStorage & MongoDB
+  const handlePickImage = async () => {
+    try {
+      const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permissionResult.granted) {
+        Alert.alert('Permission Required', 'Permission to access photo library is required to customize your profile image.');
+        return;
+      }
+
+      const pickerResult = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.6,
+      });
+
+      if (!pickerResult.canceled && pickerResult.assets && pickerResult.assets.length > 0) {
+        const selectedUri = pickerResult.assets[0].uri;
+        setIsUploading(true);
+
+        // Convert image to Base64
+        const base64Image = await FileSystem.readAsStringAsync(selectedUri, {
+          encoding: FileSystem.EncodingType.Base64,
+        });
+        const imagePayload = `data:image/jpeg;base64,${base64Image}`;
+
+        // Save locally instantly
+        setProfileImageUri(imagePayload);
+        await AsyncStorage.setItem(STORAGE_KEY_PROFILE_IMAGE, imagePayload);
+
+        // Save to MongoDB database via backend API
+        try {
+          await fetch(`${API_BASE_URL}/api/users/${farmerId}/profile-image`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ profile_image: imagePayload }),
+          });
+        } catch (apiErr) {
+          console.warn('Failed to sync profile image to database (saved locally):', apiErr);
+        }
+      }
+    } catch (error) {
+      console.warn('Error picking image:', error);
+      Alert.alert('Error', 'Could not update profile image.');
+    } finally {
+      setIsUploading(false);
+    }
+  };
 
   const handleLogoutPress = () => {
     Alert.alert('Sign Out', 'Are you sure you want to log out of AquaSense?', [
@@ -43,34 +135,54 @@ export default function ProfileScreen({ onLogout }: ProfileScreenProps) {
   };
 
   return (
-    <ScrollView contentContainerStyle={styles.container}>
+    <ScrollView contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
+      {/* FARMER PROFILE HEADER CARD */}
       <View style={styles.userCard}>
-        <View style={styles.avatarCircle}>
-          <User size={36} color="#0284c7" />
-        </View>
+        <TouchableOpacity style={styles.avatarContainer} onPress={handlePickImage} activeOpacity={0.8}>
+          {profileImageUri ? (
+            <Image source={{ uri: profileImageUri }} style={styles.avatarImage} />
+          ) : (
+            <View style={styles.avatarCircle}>
+              <User size={36} color="#0284c7" />
+            </View>
+          )}
+          <View style={styles.cameraBadge}>
+            {isUploading ? (
+              <ActivityIndicator size="small" color="#ffffff" />
+            ) : (
+              <Camera size={12} color="#ffffff" />
+            )}
+          </View>
+        </TouchableOpacity>
+
         <View style={styles.userInfo}>
-          <Text style={styles.userName}>{user?.name || 'AquaSense Operator'}</Text>
-          <View style={styles.emailRow}>
+          <Text style={styles.userName}>{farmerName}</Text>
+          <View style={styles.infoRow}>
             <Mail size={12} color="#64748b" />
-            <Text style={styles.userEmail}>{user?.email || 'operator@aquasense.io'}</Text>
+            <Text style={styles.userEmail}>{farmerEmail}</Text>
+          </View>
+          <View style={styles.infoRow}>
+            <MapPin size={12} color="#64748b" />
+            <Text style={styles.userEmail}>Location: {farmerLocation} (ID: {farmerId})</Text>
           </View>
           <View style={styles.roleBadge}>
             <CheckCircle2 size={10} color="#16a34a" />
-            <Text style={styles.roleBadgeText}>{user?.role || 'Farmer'}</Text>
+            <Text style={styles.roleBadgeText}>{farmerRole}</Text>
           </View>
         </View>
       </View>
 
-      <Text style={styles.sectionTitle}>Telemetry & Alerts</Text>
+      {/* NOTIFICATIONS & PHONE ALERTS */}
+      <Text style={styles.sectionTitle}>Phone Notifications & Alerts</Text>
       <View style={styles.settingsGroup}>
         <View style={styles.settingItem}>
           <View style={styles.settingIconLabelGroup}>
             <View style={[styles.iconBox, { backgroundColor: '#e0f2fe' }]}>
               <Bell size={18} color="#0284c7" />
             </View>
-            <View>
+            <View style={{ flex: 1, paddingRight: 10 }}>
               <Text style={styles.settingTitle}>Push Notifications</Text>
-              <Text style={styles.settingSubtitle}>Receive real-time DO alerts</Text>
+              <Text style={styles.settingSubtitle}>Receive real-time mobile push notifications for DO triggers</Text>
             </View>
           </View>
           <Switch
@@ -79,15 +191,17 @@ export default function ProfileScreen({ onLogout }: ProfileScreenProps) {
             trackColor={{ false: '#cbd5e1', true: '#0284c7' }}
           />
         </View>
+
         <View style={styles.settingDivider} />
+
         <View style={styles.settingItem}>
           <View style={styles.settingIconLabelGroup}>
             <View style={[styles.iconBox, { backgroundColor: '#fee2e2' }]}>
               <Sliders size={18} color="#ef4444" />
             </View>
-            <View>
+            <View style={{ flex: 1, paddingRight: 10 }}>
               <Text style={styles.settingTitle}>Critical Thresholds Only</Text>
-              <Text style={styles.settingSubtitle}>Filter out minor warnings</Text>
+              <Text style={styles.settingSubtitle}>Filter out minor warnings and notify only on critical DO limits</Text>
             </View>
           </View>
           <Switch
@@ -96,41 +210,28 @@ export default function ProfileScreen({ onLogout }: ProfileScreenProps) {
             trackColor={{ false: '#cbd5e1', true: '#0284c7' }}
           />
         </View>
-      </View>
 
-      <Text style={styles.sectionTitle}>Node Configuration</Text>
-      <View style={styles.settingsGroup}>
+        <View style={styles.settingDivider} />
+
         <View style={styles.settingItem}>
           <View style={styles.settingIconLabelGroup}>
             <View style={[styles.iconBox, { backgroundColor: '#f0fdf4' }]}>
-              <HardDrive size={18} color="#16a34a" />
+              <Volume2 size={18} color="#16a34a" />
             </View>
-            <View>
-              <Text style={styles.settingTitle}>Background Data Sync</Text>
-              <Text style={styles.settingSubtitle}>Auto-fetch floater metrics</Text>
+            <View style={{ flex: 1, paddingRight: 10 }}>
+              <Text style={styles.settingTitle}>Alert Sound & Vibration</Text>
+              <Text style={styles.settingSubtitle}>Play sound alerts when a pond requires aeration</Text>
             </View>
           </View>
           <Switch
-            value={autoSync}
-            onValueChange={setAutoSync}
+            value={soundAlerts}
+            onValueChange={setSoundAlerts}
             trackColor={{ false: '#cbd5e1', true: '#0284c7' }}
           />
         </View>
-        <View style={styles.settingDivider} />
-        <TouchableOpacity style={styles.settingItemClickable} activeOpacity={0.7}>
-          <View style={styles.settingIconLabelGroup}>
-            <View style={[styles.iconBox, { backgroundColor: '#f1f5f9' }]}>
-              <Shield size={18} color="#475569" />
-            </View>
-            <View>
-              <Text style={styles.settingTitle}>Security & Credentials</Text>
-              <Text style={styles.settingSubtitle}>Manage API tokens & keys</Text>
-            </View>
-          </View>
-          <ChevronRight size={18} color="#94a3b8" />
-        </TouchableOpacity>
       </View>
 
+      {/* ACCOUNT ACTIONS */}
       <TouchableOpacity
         style={styles.logoutButton}
         onPress={handleLogoutPress}
@@ -159,21 +260,44 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.05,
     shadowRadius: 4,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
   },
+  avatarContainer: { position: 'relative' },
   avatarCircle: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
+    width: 64,
+    height: 64,
+    borderRadius: 32,
     backgroundColor: '#e0f2fe',
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 2,
     borderColor: '#bae6fd',
   },
+  avatarImage: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    borderWidth: 2,
+    borderColor: '#0284c7',
+  },
+  cameraBadge: {
+    position: 'absolute',
+    bottom: 0,
+    right: 0,
+    backgroundColor: '#0284c7',
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1.5,
+    borderColor: '#ffffff',
+  },
   userInfo: { flex: 1, gap: 3 },
   userName: { fontSize: 16, fontWeight: '800', color: '#0f172a' },
-  emailRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  userEmail: { fontSize: 12, color: '#64748b', fontWeight: '500' },
+  infoRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  userEmail: { fontSize: 11, color: '#64748b', fontWeight: '500' },
   roleBadge: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -190,20 +314,21 @@ const styles = StyleSheet.create({
   settingsGroup: {
     backgroundColor: '#ffffff',
     borderRadius: 16,
-    padding: 12,
+    padding: 14,
     elevation: 2,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.03,
     shadowRadius: 3,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
   },
-  settingItem: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 6 },
-  settingItemClickable: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 6 },
+  settingItem: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 8 },
   settingIconLabelGroup: { flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 },
   iconBox: { width: 36, height: 36, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
   settingTitle: { fontSize: 13, fontWeight: '700', color: '#0f172a' },
-  settingSubtitle: { fontSize: 11, color: '#64748b', fontWeight: '500' },
-  settingDivider: { height: 1, backgroundColor: '#f1f5f9', marginVertical: 8 },
+  settingSubtitle: { fontSize: 11, color: '#64748b', fontWeight: '500', marginTop: 1 },
+  settingDivider: { height: 1, backgroundColor: '#f1f5f9', marginVertical: 6 },
   logoutButton: {
     flexDirection: 'row',
     alignItems: 'center',

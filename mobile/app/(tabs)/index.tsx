@@ -9,6 +9,7 @@ import {
   StatusBar,
   ActivityIndicator,
   RefreshControl,
+  Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -18,8 +19,6 @@ import {
   Layers,
   AlertCircle,
   User,
-  ChevronLeft,
-  LogOut as Logout,
   ChevronRight,
   Activity,
   Wifi,
@@ -49,14 +48,12 @@ export default function MobileDashboard() {
     devicesRef.current = devices;
   }, [devices]);
 
-  // Fetch devices from MongoDB Atlas and guarantee display even if offline or partial match
   const fetchDevices = useCallback(async () => {
     try {
       const response = await fetch(`${API_BASE_URL}/api/devices`);
       if (response.ok) {
         const rawDevices = await response.json();
         if (Array.isArray(rawDevices)) {
-          // Map MongoDB documents directly to frontend FloaterDevice format
           const formattedDevices: FloaterDevice[] = rawDevices.map((dev: any) => ({
             id: dev.device_id || dev.id || 'ESP32_POND_01',
             name: dev.name || dev.device_id || 'Node ESP32_POND_01',
@@ -77,7 +74,6 @@ export default function MobileDashboard() {
         }
         setIsConnected(true);
       } else {
-        // Fallback device representation so screen never stays empty if API errors
         setDevices([
           {
             id: 'ESP32_POND_01',
@@ -91,7 +87,6 @@ export default function MobileDashboard() {
     } catch (err) {
       console.warn("Could not reach backend devices endpoint, using offline fallback:", err);
       setIsConnected(false);
-      // Guarantee offline device visibility matching your MongoDB document
       setDevices([
         {
           id: 'ESP32_POND_01',
@@ -151,9 +146,7 @@ export default function MobileDashboard() {
                 }
               };
             }
-          } catch (e) {
-            // Keep device visible with offline telemetry values
-          }
+          } catch (e) {}
           return device;
         })
       );
@@ -193,48 +186,38 @@ export default function MobileDashboard() {
     }
   };
 
-  const handleLogout = () => {
-    logout();
-  };
+  const typedUser = user as any;
+  const farmerName = typedUser?.name || 'John Rey Nillama';
 
   return (
-    <SafeAreaView style={styles.phoneWrapperFrame}>
+    <View style={styles.screenRootContainer}>
       <StatusBar barStyle="light-content" />
       
-      {/* GLOBAL BRANDING HEADER */}
+      {/* TOP EDGE SAFE AREA BACKGROUND FILLER */}
+      <View style={styles.topStatusBarFiller} />
+
+      {/* CONSISTENT GLOBAL BRANDING HEADER */}
       <View style={styles.brandingHeader}>
         <View style={styles.headerLeftBlock}>
-          {currentScreen === 'components' && (
-            <TouchableOpacity
-              style={styles.backArrowBtn}
-              onPress={() => { setCurrentScreen('home'); setSelectedDevice(null); }}
-              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-              activeOpacity={0.7}
-            >
-              <ChevronLeft size={20} color="#ffffff" />
-            </TouchableOpacity>
-          )}
           <View>
             <View style={styles.brandTitleRow}>
               <Text style={styles.brandTitleText}>AquaSense</Text>
               <View style={[styles.onlineBadge, !isConnected && styles.offlineBadge]}>
                 <View style={[styles.onlinePulseDot, !isConnected && styles.offlinePulseDot]} />
                 <Text style={[styles.onlineBadgeText, !isConnected && styles.offlineBadgeText]}>
-                  {isConnected ? 'LIVE' : 'OFFLINE'}
+                  {isConnected ? 'ONLINE' : 'OFFLINE'}
                 </Text>
               </View>
             </View>
             <Text style={styles.brandSubtitleText}>
               {selectedDevice
                 ? `node: ${selectedDevice.name}`
-                : user?.name
-                ? `welcome back, ${user.name}`
-                : 'welcome back, operator'}
+                : `welcome back, ${farmerName}`}
             </Text>
           </View>
         </View>
 
-        {/* Action Tray */}
+        {/* Action Tray (Notification Bell Only) */}
         <View style={styles.headerActionTray}>
           <TouchableOpacity
             style={styles.actionIconBtn}
@@ -245,107 +228,101 @@ export default function MobileDashboard() {
             <Bell size={18} color="#94a3b8" />
             <View style={styles.activeNotificationAlertDot} />
           </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.actionIconBtn, styles.logoutBtn]}
-            onPress={handleLogout}
-            activeOpacity={0.7}
-            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-          >
-            <Logout size={18} color="#ef4444" />
-          </TouchableOpacity>
         </View>
       </View>
 
       {/* CORE DISPLAY STAGE */}
-      {currentScreen === 'alert' ? (
-        <AlertScreen devices={devices} onSelectAlertDevice={handleSelectDeviceFromAlert} />
-      ) : currentScreen === 'profile' ? (
-        <ProfileScreen onLogout={handleLogout} />
-      ) : (
-        <ScrollView
-          contentContainerStyle={styles.mainContentScrollBody}
-          showsVerticalScrollIndicator={false}
-          refreshControl={
-            <RefreshControl refreshing={isRefreshing} onRefresh={handleRefresh} tintColor="#0284c7" />
-          }
-        >
-          {currentScreen === 'home' && (
-            <View>
-              <View style={styles.summaryBar}>
-                <View style={styles.summaryItem}>
-                  {isConnected ? <Wifi size={14} color="#16a34a" /> : <WifiOff size={14} color="#ef4444" />}
-                  <Text style={styles.summaryItemText}>{devices.length} Active Nodes</Text>
+      <View style={styles.mainStageWrapper}>
+        {currentScreen === 'alert' ? (
+          <AlertScreen devices={devices} onSelectAlertDevice={handleSelectDeviceFromAlert} />
+        ) : currentScreen === 'profile' ? (
+          <ProfileScreen onLogout={logout} />
+        ) : (
+          <ScrollView
+            contentContainerStyle={styles.mainContentScrollBody}
+            showsVerticalScrollIndicator={false}
+            refreshControl={
+              <RefreshControl refreshing={isRefreshing} onRefresh={handleRefresh} tintColor="#0284c7" />
+            }
+          >
+            {currentScreen === 'home' && (
+              <View>
+                <View style={styles.summaryBar}>
+                  <View style={styles.summaryItem}>
+                    {isConnected ? <Wifi size={14} color="#16a34a" /> : <WifiOff size={14} color="#ef4444" />}
+                    <Text style={styles.summaryItemText}>{devices.length} Active Nodes</Text>
+                  </View>
+                  <View style={styles.summaryDivider} />
+                  <View style={styles.summaryItem}>
+                    <Activity size={14} color="#0284c7" />
+                    <Text style={styles.summaryItemText}>Sync 4s</Text>
+                  </View>
                 </View>
-                <View style={styles.summaryDivider} />
-                <View style={styles.summaryItem}>
-                  <Activity size={14} color="#0284c7" />
-                  <Text style={styles.summaryItemText}>Sync 4s</Text>
-                </View>
+
+                <Text style={styles.sectionHeaderTitle}>Choose Floater Device</Text>
+
+                {isLoading ? (
+                  <View style={styles.loaderContainer}>
+                    <ActivityIndicator size="large" color="#0284c7" />
+                    <Text style={styles.loaderText}>Connecting to AquaSense database...</Text>
+                  </View>
+                ) : devices.length === 0 ? (
+                  <View style={styles.emptyContainer}>
+                    <AlertCircle size={40} color="#f59e0b" />
+                    <Text style={styles.emptyTitle}>No ESP32 Device Found</Text>
+                    <Text style={styles.emptySub}>Contact the administrator</Text>
+                  </View>
+                ) : (
+                  <View style={styles.deviceSelectionGrid}>
+                    {devices.map((device) => {
+                      const isWarning = device.metrics.predictedDo <= 4.0;
+                      return (
+                        <TouchableOpacity
+                          key={device.id}
+                          onPress={() => handleDeviceClick(device)}
+                          style={styles.interactiveDeviceCard}
+                          activeOpacity={0.75}
+                        >
+                          <View style={[styles.cardAccentGlowBar, { backgroundColor: device.color }]} />
+                          <View style={styles.deviceCardHeader}>
+                            <Text style={styles.deviceCardIndexLabel}>{device.name}</Text>
+                            <View style={[styles.statusBadge, isWarning ? styles.warningBadge : styles.normalBadge]}>
+                              <Text style={[styles.statusBadgeText, isWarning ? styles.warningBadgeText : styles.normalBadgeText]}>
+                                {isWarning ? 'ALERT' : 'OK'}
+                              </Text>
+                            </View>
+                          </View>
+                          <Text style={styles.deviceCardLocationSubtext}>{device.location}</Text>
+                          
+                          <View style={styles.cardMetricsPreview}>
+                            <View>
+                              <Text style={styles.metricLabel}>Pred. DO</Text>
+                              <Text style={[styles.metricValue, { color: isWarning ? '#ef4444' : '#0f172a' }]}>
+                                {typeof device.metrics.predictedDo === 'number'
+                                  ? device.metrics.predictedDo.toFixed(1)
+                                  : device.metrics.predictedDo}{' '}
+                                <Text style={styles.unitText}>mg/L</Text>
+                              </Text>
+                            </View>
+                            <ChevronRight size={18} color="#cbd5e1" />
+                          </View>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                )}
               </View>
+            )}
 
-              <Text style={styles.sectionHeaderTitle}>Choose Floater Device</Text>
-
-              {isLoading ? (
-                <View style={styles.loaderContainer}>
-                  <ActivityIndicator size="large" color="#0284c7" />
-                  <Text style={styles.loaderText}>Connecting to AquaSense database...</Text>
-                </View>
-              ) : devices.length === 0 ? (
-                <View style={styles.emptyContainer}>
-                  <AlertCircle size={40} color="#f59e0b" />
-                  <Text style={styles.emptyTitle}>No ESP32 Device Found</Text>
-                  <Text style={styles.emptySub}>Contact the administrators</Text>
-                </View>
-              ) : (
-                <View style={styles.deviceSelectionGrid}>
-                  {devices.map((device) => {
-                    const isWarning = device.metrics.predictedDo <= 4.0;
-                    return (
-                      <TouchableOpacity
-                        key={device.id}
-                        onPress={() => handleDeviceClick(device)}
-                        style={styles.interactiveDeviceCard}
-                        activeOpacity={0.75}
-                      >
-                        <View style={[styles.cardAccentGlowBar, { backgroundColor: device.color }]} />
-                        <View style={styles.deviceCardHeader}>
-                          <Text style={styles.deviceCardIndexLabel}>{device.name}</Text>
-                          <View style={[styles.statusBadge, isWarning ? styles.warningBadge : styles.normalBadge]}>
-                            <Text style={[styles.statusBadgeText, isWarning ? styles.warningBadgeText : styles.normalBadgeText]}>
-                              {isWarning ? 'ALERT' : 'OK'}
-                            </Text>
-                          </View>
-                        </View>
-                        <Text style={styles.deviceCardLocationSubtext}>{device.location}</Text>
-                        
-                        <View style={styles.cardMetricsPreview}>
-                          <View>
-                            <Text style={styles.metricLabel}>Pred. DO</Text>
-                            <Text style={[styles.metricValue, { color: isWarning ? '#ef4444' : '#0f172a' }]}>
-                              {typeof device.metrics.predictedDo === 'number'
-                                ? device.metrics.predictedDo.toFixed(1)
-                                : device.metrics.predictedDo}{' '}
-                              <Text style={styles.unitText}>mg/L</Text>
-                            </Text>
-                          </View>
-                          <ChevronRight size={18} color="#cbd5e1" />
-                        </View>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </View>
-              )}
-            </View>
-          )}
-
-          {currentScreen === 'components' && selectedDevice && (
-            <ComponentsScreen
-              selectedDevice={selectedDevice}
-              sparklineData={sparklineData}
-            />
-          )}
-        </ScrollView>
-      )}
+            {currentScreen === 'components' && selectedDevice && (
+              <ComponentsScreen
+                selectedDevice={selectedDevice}
+                sparklineData={sparklineData}
+              />
+            )}
+          </ScrollView>
+        )}
+      </View>
 
       {/* FOOTER TAB BAR DOCK */}
       <View style={styles.footerTabBarDock}>
@@ -393,16 +370,23 @@ export default function MobileDashboard() {
           <Text style={[styles.tabBarItemButtonTextLabel, { color: currentScreen === 'profile' ? '#0284c7' : '#64748b' }]}>Profile</Text>
         </TouchableOpacity>
       </View>
-    </SafeAreaView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  phoneWrapperFrame: { flex: 1, backgroundColor: '#f8fafc' },
+  screenRootContainer: {
+    flex: 1,
+    backgroundColor: '#0f172a',
+  },
+  topStatusBarFiller: {
+    height: Platform.OS === 'ios' ? 44 : StatusBar.currentHeight || 24,
+    backgroundColor: '#0f172a',
+  },
   brandingHeader: {
     backgroundColor: '#0f172a',
     paddingHorizontal: 20,
-    paddingTop: 14,
+    paddingTop: 6,
     paddingBottom: 18,
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -410,11 +394,18 @@ const styles = StyleSheet.create({
     borderBottomLeftRadius: 24,
     borderBottomRightRadius: 24,
     elevation: 10,
-    shadowColor: '#023172a',
+    shadowColor: '#0f172a',
     shadowOffset: { width: 0, height: 6 },
     shadowOpacity: 0.2,
     shadowRadius: 8,
-    zIndex: 10
+    zIndex: 10,
+  },
+  mainStageWrapper: {
+    flex: 1,
+    backgroundColor: '#f8fafc',
+    borderTopLeftRadius: 0,
+    borderTopRightRadius: 0,
+    overflow: 'hidden',
   },
   headerLeftBlock: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   brandTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
@@ -446,15 +437,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.05)',
   },
-  logoutBtn: { backgroundColor: 'rgba(239, 68, 68, 0.12)', borderColor: 'rgba(239, 68, 68, 0.2)' },
-  backArrowBtn: {
-    backgroundColor: '#1e293b',
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
   activeNotificationAlertDot: {
     position: 'absolute',
     top: 9,
@@ -464,7 +446,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#ef4444',
     borderRadius: 3.5,
     borderWidth: 1.5,
-    borderColor: '#0f172a'
+    borderColor: '#0f172a',
   },
   mainContentScrollBody: { padding: 18, paddingBottom: 110 },
   summaryBar: {
@@ -557,7 +539,7 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.1,
     shadowRadius: 12,
-    zIndex: 15
+    zIndex: 15,
   },
   tabBarItemButton: { alignItems: 'center', justifyContent: 'center', flex: 1 },
   tabIconWrapper: { paddingVertical: 4, paddingHorizontal: 12, borderRadius: 12, marginBottom: 2 },

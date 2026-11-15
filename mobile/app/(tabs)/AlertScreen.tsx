@@ -8,7 +8,6 @@ import {
   ActivityIndicator,
   RefreshControl,
   Modal,
-  TextInput,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
@@ -19,6 +18,7 @@ import {
   Clock,
   Sliders,
   X,
+  ChevronDown,
 } from 'lucide-react-native';
 import { FloaterDevice } from './ComponentsScreen';
 
@@ -41,7 +41,17 @@ interface AlertScreenProps {
 }
 
 const API_BASE_URL = 'https://aquasense-backend-osmi.onrender.com';
-const STORAGE_KEY_DO_THRESHOLD = '@aquasense_do_threshold';
+const STORAGE_KEY_MIN_DO = '@aquasense_min_do_threshold';
+const STORAGE_KEY_MAX_DO = '@aquasense_max_do_threshold';
+
+// Precise decimal options from 1.0 to 25.0 mg/L (covering 10++ accurately)
+const DO_OPTIONS: string[] = [];
+for (let i = 1; i <= 25; i++) {
+  DO_OPTIONS.push(`${i}.0`);
+  if (i < 25) {
+    DO_OPTIONS.push(`${i}.5`);
+  }
+}
 
 const AlertCard = memo(
   ({
@@ -141,25 +151,39 @@ export default function AlertScreen({
   const [backendAlerts, setBackendAlerts] = useState<SystemAlert[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
-  const [doThreshold, setDoThreshold] = useState<string>('4.0');
-  const [tempThreshold, setTempThreshold] = useState<string>('4.0');
+  
+  // Threshold States
+  const [minDoThreshold, setMinDoThreshold] = useState<string>('4.0');
+  const [maxDoThreshold, setMaxDoThreshold] = useState<string>('10.0');
+  const [tempMin, setTempMin] = useState<string>('4.0');
+  const [tempMax, setTempMax] = useState<string>('10.0');
+
+  // Modal Selectors Visibility
   const [isModalVisible, setIsModalVisible] = useState<boolean>(false);
+  const [showMinPicker, setShowMinPicker] = useState<boolean>(false);
+  const [showMaxPicker, setShowMaxPicker] = useState<boolean>(false);
+  
   const [resolvedIds, setResolvedIds] = useState<string[]>([]);
 
-  // Load saved threshold from AsyncStorage on mount
+  // Load saved thresholds from AsyncStorage on mount
   useEffect(() => {
-    const loadSavedThreshold = async () => {
+    const loadSavedThresholds = async () => {
       try {
-        const saved = await AsyncStorage.getItem(STORAGE_KEY_DO_THRESHOLD);
-        if (saved !== null) {
-          setDoThreshold(saved);
-          setTempThreshold(saved);
+        const savedMin = await AsyncStorage.getItem(STORAGE_KEY_MIN_DO);
+        const savedMax = await AsyncStorage.getItem(STORAGE_KEY_MAX_DO);
+        if (savedMin !== null) {
+          setMinDoThreshold(savedMin);
+          setTempMin(savedMin);
+        }
+        if (savedMax !== null) {
+          setMaxDoThreshold(savedMax);
+          setTempMax(savedMax);
         }
       } catch (err) {
-        console.warn('Failed to load DO threshold from storage:', err);
+        console.warn('Failed to load DO thresholds from storage:', err);
       }
     };
-    loadSavedThreshold();
+    loadSavedThresholds();
   }, []);
 
   const fetchAlertsFromBackend = useCallback(async () => {
@@ -195,14 +219,18 @@ export default function AlertScreen({
     fetchAlertsFromBackend();
   }, [fetchAlertsFromBackend]);
 
+  // DYNAMIC ALERTS FOR BOTH MINIMUM & MAXIMUM PRECISE DO THRESHOLDS
   const dynamicAlerts = useMemo(() => {
-    const thresholdNum = parseFloat(doThreshold) || 4.0;
+    const minLimit = parseFloat(minDoThreshold) || 4.0;
+    const maxLimit = parseFloat(maxDoThreshold) || 10.0;
     const generated: SystemAlert[] = [];
 
     devices.forEach((dev) => {
-      const currentDo = dev.metrics?.predictedDo ?? 6.5;
-      if (currentDo <= thresholdNum) {
-        const alertId = `dynamic-do-${dev.id}`;
+      const currentDo = dev.metrics?.predictedDo ?? 5.25;
+
+      // Minimum DO Alert (Too Low)
+      if (currentDo <= minLimit) {
+        const alertId = `dynamic-low-do-${dev.id}`;
         generated.push({
           id: alertId,
           deviceId: dev.id,
@@ -210,7 +238,23 @@ export default function AlertScreen({
           location: dev.location,
           severity: 'critical',
           title: 'Low Dissolved Oxygen Warning',
-          message: `Predicted DO level reached ${currentDo.toFixed(1)} mg/L (threshold: <= ${thresholdNum} mg/L). Immediate aeration required.`,
+          message: `Predicted DO level dropped to ${currentDo.toFixed(2)} mg/L (Min Limit: <= ${minLimit.toFixed(1)} mg/L). Aeration required.`,
+          timestamp: 'Live stream',
+          isResolved: resolvedIds.includes(alertId),
+        });
+      }
+
+      // Maximum DO Alert (Too High / 10++)
+      if (currentDo >= maxLimit) {
+        const alertId = `dynamic-high-do-${dev.id}`;
+        generated.push({
+          id: alertId,
+          deviceId: dev.id,
+          deviceName: dev.name,
+          location: dev.location,
+          severity: 'warning',
+          title: 'High Dissolved Oxygen Warning',
+          message: `Predicted DO level rose to ${currentDo.toFixed(2)} mg/L (Max Limit: >= ${maxLimit.toFixed(1)} mg/L). Monitor water status.`,
           timestamp: 'Live stream',
           isResolved: resolvedIds.includes(alertId),
         });
@@ -219,20 +263,23 @@ export default function AlertScreen({
 
     const combined = [...generated, ...backendAlerts.filter(b => !generated.some(g => g.deviceId === b.deviceId))];
     return combined;
-  }, [devices, doThreshold, resolvedIds, backendAlerts]);
+  }, [devices, minDoThreshold, maxDoThreshold, resolvedIds, backendAlerts]);
 
   useEffect(() => {
     onAlertsChange?.(dynamicAlerts);
   }, [dynamicAlerts, onAlertsChange]);
 
-  const handleSaveThreshold = async () => {
-    const valToSave = tempThreshold.trim() || '4.0';
-    setDoThreshold(valToSave);
+  const handleSaveThresholds = async () => {
+    setMinDoThreshold(tempMin);
+    setMaxDoThreshold(tempMax);
     setIsModalVisible(false);
+    setShowMinPicker(false);
+    setShowMaxPicker(false);
     try {
-      await AsyncStorage.setItem(STORAGE_KEY_DO_THRESHOLD, valToSave);
+      await AsyncStorage.setItem(STORAGE_KEY_MIN_DO, tempMin);
+      await AsyncStorage.setItem(STORAGE_KEY_MAX_DO, tempMax);
     } catch (err) {
-      console.warn('Failed to save DO threshold to storage:', err);
+      console.warn('Failed to save DO thresholds to storage:', err);
     }
   };
 
@@ -262,12 +309,15 @@ export default function AlertScreen({
       <View style={styles.headerBar}>
         <View>
           <Text style={styles.screenHeaderTitle}>System Notifications</Text>
-          <Text style={styles.screenHeaderSub}>Active Trigger Limit: {doThreshold} mg/L DO</Text>
+          <Text style={styles.screenHeaderSub}>Min: {minDoThreshold} | Max: {maxDoThreshold} mg/L</Text>
         </View>
         <TouchableOpacity
           style={styles.thresholdBtn}
           onPress={() => {
-            setTempThreshold(doThreshold);
+            setTempMin(minDoThreshold);
+            setTempMax(maxDoThreshold);
+            setShowMinPicker(false);
+            setShowMaxPicker(false);
             setIsModalVisible(true);
           }}
           activeOpacity={0.8}
@@ -288,7 +338,7 @@ export default function AlertScreen({
             <Bell size={32} color="#cbd5e1" />
             <Text style={styles.emptyStateTitle}>No Active Alerts</Text>
             <Text style={styles.emptyStateSubtext}>
-              All active nodes are operating within your configured Dissolved Oxygen safety margin ({doThreshold} mg/L).
+              All active nodes are operating within your safety range ({minDoThreshold} - {maxDoThreshold} mg/L).
             </Text>
           </View>
         ) : (
@@ -303,6 +353,7 @@ export default function AlertScreen({
         )}
       </View>
 
+      {/* CONFIGURATION MODAL WITH SCROLLABLE PRECISE DROPDOWNS */}
       <Modal
         animationType="fade"
         transparent={true}
@@ -312,30 +363,91 @@ export default function AlertScreen({
         <View style={styles.modalOverlay}>
           <View style={styles.modalContentCard}>
             <View style={styles.modalHeaderRow}>
-              <Text style={styles.modalTitleText}>DO Trigger Threshold</Text>
+              <Text style={styles.modalTitleText}>DO Trigger Limits</Text>
               <TouchableOpacity onPress={() => setIsModalVisible(false)}>
                 <X size={20} color="#64748b" />
               </TouchableOpacity>
             </View>
             <Text style={styles.modalBodyText}>
-              Set the minimum Predicted Dissolved Oxygen (mg/L) level below which critical alerts and notifications will trigger dynamically.
+              Select exact decimal limits. Alerts will trigger if dissolved oxygen crosses these boundaries (1.0 up to 25.0+ mg/L).
             </Text>
-            <View style={styles.inputWrapper}>
-              <TextInput
-                style={styles.textInput}
-                keyboardType="numeric"
-                value={tempThreshold}
-                onChangeText={setTempThreshold}
-                placeholder="4.0"
-              />
-              <Text style={styles.inputUnit}>mg/L</Text>
+
+            {/* MINIMUM DO DROPDOWN SELECTOR */}
+            <View style={[styles.pickerBlock, { zIndex: showMinPicker ? 30 : 1 }]}>
+              <Text style={styles.pickerLabel}>Minimum DO Limit</Text>
+              <TouchableOpacity
+                style={styles.dropdownButton}
+                onPress={() => { setShowMinPicker(!showMinPicker); setShowMaxPicker(false); }}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.dropdownButtonText}>{tempMin} mg/L</Text>
+                <ChevronDown size={16} color="#64748b" />
+              </TouchableOpacity>
+
+              {showMinPicker && (
+                <View style={styles.dropdownListWrapper}>
+                  <ScrollView
+                    style={styles.dropdownScrollList}
+                    nestedScrollEnabled={true}
+                    showsVerticalScrollIndicator={true}
+                  >
+                    {DO_OPTIONS.map((val) => (
+                      <TouchableOpacity
+                        key={`min-${val}`}
+                        style={styles.dropdownItem}
+                        onPress={() => { setTempMin(val); setShowMinPicker(false); }}
+                      >
+                        <Text style={[styles.dropdownItemText, tempMin === val && styles.dropdownItemActiveText]}>
+                          {val} mg/L
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </ScrollView>
+                </View>
+              )}
             </View>
+
+            {/* MAXIMUM DO DROPDOWN SELECTOR (10++ SUPPORTED) */}
+            <View style={[styles.pickerBlock, { marginTop: 14, zIndex: showMaxPicker ? 30 : 1 }]}>
+              <Text style={styles.pickerLabel}>Maximum DO Limit</Text>
+              <TouchableOpacity
+                style={styles.dropdownButton}
+                onPress={() => { setShowMaxPicker(!showMaxPicker); setShowMinPicker(false); }}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.dropdownButtonText}>{tempMax} mg/L</Text>
+                <ChevronDown size={16} color="#64748b" />
+              </TouchableOpacity>
+
+              {showMaxPicker && (
+                <View style={styles.dropdownListWrapper}>
+                  <ScrollView
+                    style={styles.dropdownScrollList}
+                    nestedScrollEnabled={true}
+                    showsVerticalScrollIndicator={true}
+                  >
+                    {DO_OPTIONS.map((val) => (
+                      <TouchableOpacity
+                        key={`max-${val}`}
+                        style={styles.dropdownItem}
+                        onPress={() => { setTempMax(val); setShowMaxPicker(false); }}
+                      >
+                        <Text style={[styles.dropdownItemText, tempMax === val && styles.dropdownItemActiveText]}>
+                          {val} mg/L
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </ScrollView>
+                </View>
+              )}
+            </View>
+
             <TouchableOpacity
               style={styles.modalSaveButton}
-              onPress={handleSaveThreshold}
+              onPress={handleSaveThresholds}
               activeOpacity={0.8}
             >
-              <Text style={styles.modalSaveButtonText}>Save Threshold Limit</Text>
+              <Text style={styles.modalSaveButtonText}>Save Threshold Limits</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -400,12 +512,45 @@ const styles = StyleSheet.create({
   emptyStateSubtext: { marginTop: 4, fontSize: 12, color: '#94a3b8', textAlign: 'center', paddingHorizontal: 20 },
   modalOverlay: { flex: 1, backgroundColor: 'rgba(15, 23, 42, 0.6)', justifyContent: 'center', alignItems: 'center', padding: 24 },
   modalContentCard: { backgroundColor: '#ffffff', borderRadius: 24, padding: 24, width: '100%', maxWidth: 340, elevation: 10, shadowColor: '#0f172a', shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.2, shadowRadius: 15 },
-  modalHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
+  modalHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
   modalTitleText: { fontSize: 18, fontWeight: '800', color: '#0f172a' },
-  modalBodyText: { fontSize: 13, color: '#64748b', lineHeight: 18, marginBottom: 20 },
-  inputWrapper: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#f1f5f9', borderRadius: 12, borderWidth: 1, borderColor: '#cbd5e1', paddingHorizontal: 16, marginBottom: 24 },
-  textInput: { flex: 1, height: 48, fontSize: 16, fontWeight: '700', color: '#0f172a' },
-  inputUnit: { fontSize: 14, fontWeight: '600', color: '#64748b' },
-  modalSaveButton: { backgroundColor: '#0284c7', borderRadius: 12, height: 48, justifyContent: 'center', alignItems: 'center' },
-  modalSaveButtonText: { color: '#ffffff', fontSize: 15, fontWeight: '700' },
+  modalBodyText: { fontSize: 12, color: '#64748b', lineHeight: 16, marginBottom: 16 },
+  pickerBlock: { position: 'relative' },
+  pickerLabel: { fontSize: 11, fontWeight: '700', color: '#334155', marginBottom: 6 },
+  dropdownButton: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: '#f8fafc',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#cbd5e1',
+    paddingHorizontal: 16,
+    height: 46,
+  },
+  dropdownButtonText: { fontSize: 14, fontWeight: '700', color: '#0f172a' },
+  dropdownListWrapper: {
+    position: 'absolute',
+    top: 76,
+    left: 0,
+    right: 0,
+    backgroundColor: '#ffffff',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#cbd5e1',
+    elevation: 8,
+    shadowColor: '#0f172a',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 6,
+    overflow: 'hidden',
+  },
+  dropdownScrollList: {
+    maxHeight: 160,
+  },
+  dropdownItem: { paddingVertical: 12, paddingHorizontal: 16, borderBottomWidth: 1, borderBottomColor: '#f1f5f9' },
+  dropdownItemText: { fontSize: 14, color: '#334155', fontWeight: '500' },
+  dropdownItemActiveText: { color: '#0284c7', fontWeight: '800' },
+  modalSaveButton: { backgroundColor: '#0284c7', borderRadius: 12, height: 48, justifyContent: 'center', alignItems: 'center', marginTop: 24 },
+  modalSaveButtonText: { color: '#ffffff', fontSize: 14, fontWeight: '700' },
 });
