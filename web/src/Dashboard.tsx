@@ -187,7 +187,7 @@ export default function Dashboard({ onLogout }: DashboardProps) {
 
       if (dataArray.length > 0) {
         const deviceMap = new Map<string, TelemetryRecord>();
-        
+
         dataArray.forEach((record) => {
           const id = record.device_id || 'UNKNOWN_NODE';
           if (!deviceMap.has(id)) deviceMap.set(id, record);
@@ -428,7 +428,7 @@ export default function Dashboard({ onLogout }: DashboardProps) {
   const rawAvgDo = typeof prediction?.predicted_do === 'number'
     ? prediction.predicted_do
     : parseFloat(String(prediction?.predicted_do || 0));
-  
+
   const avgDo = isHardwareOnline && !isNaN(rawAvgDo)
     ? rawAvgDo.toFixed(2)
     : '0.00';
@@ -958,11 +958,11 @@ const styles: Record<string, React.CSSProperties> = {
   },
   panelHeaderRow: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '8px' },
   panelBoxTitle: { margin: 0, fontSize: '16px', fontWeight: '700', color: '#0f172a' },
-  recordBadge: { backgroundColor: '#e0f2fe', color: '#0369a1', fontSize: '11px', fontWeight: '700', padding: '2px 8px', borderRadius: '12px', marginLeft: '8px' },
-  latestBadge: { backgroundColor: '#0284c7', color: '#ffffff', fontSize: '10px', fontWeight: '800', padding: '3px 8px', borderRadius: '10px', letterSpacing: '0.05em' },
-  indexBadge: { color: '#64748b', fontSize: '12px', fontWeight: '600' },
-  refreshBtn: { display: 'flex', alignItems: 'center', gap: '6px', backgroundColor: '#f1f5f9', border: '1px solid #cbd5e1', padding: '6px 12px', borderRadius: '8px', cursor: 'pointer', fontSize: '12px', fontWeight: '600', color: '#334155' },
-  cryptoBadge: { display: 'flex', alignItems: 'center', padding: '4px 10px', borderRadius: '20px', fontSize: '12px', fontWeight: '600' },
+  recordBadge: { backgroundColor: '#e0f2fe', color: '#0369a1', fontSize: '11px', fontWeight: '700', padding: '2px 8px', borderRadius: '12px', marginLeft: '8px', whiteSpace: 'nowrap' },
+  latestBadge: { display: 'inline-block', backgroundColor: '#0284c7', color: '#ffffff', fontSize: '10px', fontWeight: '800', padding: '4px 9px', borderRadius: '10px', letterSpacing: '0.05em', whiteSpace: 'nowrap' },
+  indexBadge: { color: '#64748b', fontSize: '12px', fontWeight: '600', whiteSpace: 'nowrap' },
+  refreshBtn: { display: 'flex', alignItems: 'center', gap: '6px', backgroundColor: '#f1f5f9', border: '1px solid #cbd5e1', padding: '6px 12px', borderRadius: '8px', cursor: 'pointer', fontSize: '12px', fontWeight: '600', color: '#334155', whiteSpace: 'nowrap' },
+  cryptoBadge: { display: 'flex', alignItems: 'center', padding: '4px 10px', borderRadius: '20px', fontSize: '12px', fontWeight: '600', whiteSpace: 'nowrap' },
   mapCanvas: { height: '260px', backgroundColor: '#f8fafc', borderRadius: '12px', position: 'relative', overflow: 'hidden', border: '1px solid #e2e8f0' },
   chartMockCanvas: { height: '260px', backgroundColor: '#0b1120', borderRadius: '12px', position: 'relative', overflow: 'hidden' },
   svgGraphLine: { width: '100%', height: '100%', position: 'absolute', top: 0, left: 0, zIndex: 2 },
@@ -971,15 +971,15 @@ const styles: Record<string, React.CSSProperties> = {
   flexHeader: { display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' },
   flexGroup8: { display: 'flex', alignItems: 'center', gap: '8px' },
   tableScrollContainer: { maxHeight: '280px', overflowX: 'auto', overflowY: 'auto', borderRadius: '8px', border: '1px solid #e2e8f0', width: '100%' },
-  telemetryTable: { width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '13px', minWidth: '640px' },
-  tableTh: { padding: '10px 14px', backgroundColor: '#f1f5f9', color: '#475569', fontWeight: '700', borderBottom: '1px solid #cbd5e1', position: 'sticky', top: 0, zIndex: 5 },
+  telemetryTable: { width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '13px', minWidth: '720px' },
+  tableTh: { padding: '10px 14px', backgroundColor: '#f1f5f9', color: '#475569', fontWeight: '700', borderBottom: '1px solid #cbd5e1', position: 'sticky', top: 0, zIndex: 5, whiteSpace: 'nowrap' },
   tableTr: { borderBottom: '1px solid #f1f5f9' },
-  tableTdBold: { padding: '10px 14px', fontWeight: '700', color: '#0f172a' },
-  tableTdPh: { padding: '10px 14px', color: '#16a34a', fontWeight: '600' },
-  tableTdTemp: { padding: '10px 14px', color: '#0284c7', fontWeight: '600' },
-  tableTdTurb: { padding: '10px 14px', color: '#e11d48', fontWeight: '600' },
-  tableTdDo: { padding: '10px 14px', color: '#059669', fontWeight: '700' },
-  tableTdTime: { padding: '10px 14px', color: '#64748b', fontSize: '12px' },
+  tableTdBold: { padding: '10px 14px', fontWeight: '700', color: '#0f172a', whiteSpace: 'nowrap' },
+  tableTdPh: { padding: '10px 14px', color: '#16a34a', fontWeight: '600', whiteSpace: 'nowrap' },
+  tableTdTemp: { padding: '10px 14px', color: '#0284c7', fontWeight: '600', whiteSpace: 'nowrap' },
+  tableTdTurb: { padding: '10px 14px', color: '#e11d48', fontWeight: '600', whiteSpace: 'nowrap' },
+  tableTdDo: { padding: '10px 14px', color: '#059669', fontWeight: '700', whiteSpace: 'nowrap' },
+  tableTdTime: { padding: '10px 14px', color: '#64748b', fontSize: '12px', whiteSpace: 'nowrap' },
   emptyTd: { padding: '20px', textAlign: 'center', color: '#94a3b8' },
   modalOverlayMask: { position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '16px' },
   modalBodyWindow: { width: '100%', maxWidth: '800px', backgroundColor: '#ffffff', borderRadius: '16px', overflow: 'hidden', maxHeight: '90vh', overflowY: 'auto' },
