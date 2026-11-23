@@ -12,7 +12,6 @@ import {
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImagePicker from 'expo-image-picker';
-import * as FileSystem from 'expo-file-system';
 import {
   User,
   Mail,
@@ -31,25 +30,17 @@ interface ProfileScreenProps {
   onLogout?: () => void;
 }
 
-const API_BASE_URL = 'https://aquasense-backend-osmi.onrender.com';
 const STORAGE_KEY_PROFILE_IMAGE = '@aquasense_farmer_profile_image';
 
 export default function ProfileScreen({ onLogout }: ProfileScreenProps) {
-  const { user, token } = useAuth() as any;
+  const { user } = useAuth();
   const [notificationsEnabled, setNotificationsEnabled] = useState<boolean>(true);
   const [criticalAlertsOnly, setCriticalAlertsOnly] = useState<boolean>(false);
   const [soundAlerts, setSoundAlerts] = useState<boolean>(true);
   const [profileImageUri, setProfileImageUri] = useState<string | null>(null);
   const [isUploading, setIsUploading] = useState<boolean>(false);
 
-  const typedUser = user as any;
-  const farmerId = typedUser?.id || typedUser?._id || typedUser?.userId || typedUser?.email || 'USR-002';
-  const farmerName = typedUser?.name || 'John Rey Nillama';
-  const farmerEmail = typedUser?.email || 'johnrey@aquasense.com';
-  const farmerRole = typedUser?.role || 'Farmer';
-  const farmerLocation = typedUser?.location || 'BonBon';
-
-  // Load saved profile image from AsyncStorage or Backend on mount
+  // Load saved profile image from AsyncStorage on mount
   useEffect(() => {
     const loadSavedImage = async () => {
       try {
@@ -57,29 +48,14 @@ export default function ProfileScreen({ onLogout }: ProfileScreenProps) {
         if (savedImage) {
           setProfileImageUri(savedImage);
         }
-
-        if (farmerId) {
-          const response = await fetch(`${API_BASE_URL}/api/users/${farmerId}`, {
-            headers: {
-              ...(token ? { Authorization: `Bearer ${token}` } : {}),
-            },
-          });
-          if (response.ok) {
-            const userData = await response.json();
-            if (userData.profile_image) {
-              setProfileImageUri(userData.profile_image);
-              await AsyncStorage.setItem(STORAGE_KEY_PROFILE_IMAGE, userData.profile_image);
-            }
-          }
-        }
       } catch (err) {
-        console.warn('Failed to load profile image:', err);
+        console.warn('Failed to load profile image from storage:', err);
       }
     };
     loadSavedImage();
-  }, [farmerId, token]);
+  }, []);
 
-  // Handle picking image, compressing, converting to Base64, and syncing to MongoDB
+  // Handle picking and saving a profile image to AsyncStorage
   const handlePickImage = async () => {
     try {
       const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -88,45 +64,18 @@ export default function ProfileScreen({ onLogout }: ProfileScreenProps) {
         return;
       }
 
+      setIsUploading(true);
       const pickerResult = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
         allowsEditing: true,
         aspect: [1, 1],
-        quality: 0.4, // Reduced quality to keep base64 payload small and fast
+        quality: 0.7,
       });
 
       if (!pickerResult.canceled && pickerResult.assets && pickerResult.assets.length > 0) {
         const selectedUri = pickerResult.assets[0].uri;
-        setIsUploading(true);
-
-        // Convert image to Base64
-        const base64Image = await FileSystem.readAsStringAsync(selectedUri, {
-          encoding: FileSystem.EncodingType.Base64,
-        });
-        const imagePayload = `data:image/jpeg;base64,${base64Image}`;
-
-        // Save locally instantly for immediate UI feedback
-        setProfileImageUri(imagePayload);
-        await AsyncStorage.setItem(STORAGE_KEY_PROFILE_IMAGE, imagePayload);
-
-        // Sync with MongoDB backend API
-        try {
-          const apiRes = await fetch(`${API_BASE_URL}/api/users/${farmerId}/profile-image`, {
-            method: 'PUT',
-            headers: {
-              'Content-Type': 'application/json',
-              ...(token ? { Authorization: `Bearer ${token}` } : {}),
-            },
-            body: JSON.stringify({ profile_image: imagePayload }),
-          });
-
-          if (!apiRes.ok) {
-            const errData = await apiRes.json().catch(() => ({}));
-            console.warn('Backend image sync warning:', errData);
-          }
-        } catch (apiErr) {
-          console.warn('Network error syncing profile image to database (saved locally):', apiErr);
-        }
+        setProfileImageUri(selectedUri);
+        await AsyncStorage.setItem(STORAGE_KEY_PROFILE_IMAGE, selectedUri);
       }
     } catch (error) {
       console.warn('Error picking image:', error);
@@ -146,6 +95,13 @@ export default function ProfileScreen({ onLogout }: ProfileScreenProps) {
       },
     ]);
   };
+
+  const typedUser = user as any;
+  const farmerName = typedUser?.name || 'John Rey Nillama';
+  const farmerEmail = typedUser?.email || 'johnrey@aquasense.com';
+  const farmerRole = typedUser?.role || 'Farmer';
+  const farmerLocation = typedUser?.location || 'BonBon';
+  const farmerId = typedUser?.id || typedUser?._id || 'USR-002';
 
   return (
     <ScrollView contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
@@ -254,7 +210,7 @@ export default function ProfileScreen({ onLogout }: ProfileScreenProps) {
         <Text style={styles.logoutButtonText}>Sign Out of System</Text>
       </TouchableOpacity>
 
-      <Text style={styles.versionSubtext}>AquaSense Mobile v1.2.0 • Build 2026</Text>
+      <Text style={styles.versionSubtext}>AquaSense Mobile v1.1.0 • Build 2026</Text>
     </ScrollView>
   );
 }

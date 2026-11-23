@@ -67,8 +67,8 @@ const getAuthHeaders = () => {
 export default function DeviceManagement({
   devices: propDevices,
   accounts: propAccounts,
-  onAddDevice: _onAddDevice,   // Fixed unused warning
-  onEditDevice: _onEditDevice, // Fixed unused warning
+  onAddDevice: _onAddDevice,
+  onEditDevice: _onEditDevice,
   onRemoveDevice,
   onRebootDevice
 }: DeviceManagementProps) {
@@ -132,7 +132,7 @@ export default function DeviceManagement({
   useEffect(() => {
     if (!propDevices) {
       loadDevicesFromBackend();
-      const interval = setInterval(loadDevicesFromBackend, 10000); // Poll every 10s
+      const interval = setInterval(loadDevicesFromBackend, 10000);
       return () => clearInterval(interval);
     }
   }, [propDevices]);
@@ -253,7 +253,7 @@ export default function DeviceManagement({
     <div style={styles.container}>
       <div style={styles.toolbar}>
         <div style={styles.searchWrapper}>
-          <Search size={18} color="#64748b" style={{ marginLeft: '12px' }} />
+          <Search size={18} color="#64748b" style={{ marginLeft: '12px', flexShrink: 0 }} />
           <input
             type="text"
             placeholder="Search nodes by ID, name, location, or assigned user..."
@@ -317,7 +317,6 @@ export default function DeviceManagement({
                   </div>
                 </div>
 
-                {/* Metrics display: Shows live data if online, or indicates offline state if no telemetry */}
                 {isOnline && device.metrics ? (
                   <div style={styles.metricsGrid}>
                     <div style={styles.metricBlock}>
@@ -478,18 +477,18 @@ export default function DeviceManagement({
 }
 
 const styles: Record<string, React.CSSProperties> = {
-  container: { padding: '24px', maxWidth: '1400px', margin: '0 auto', fontFamily: 'Inter, sans-serif' },
+  container: { padding: 'clamp(12px, 2vw, 24px)', maxWidth: '1400px', margin: '0 auto', fontFamily: 'Inter, sans-serif' },
   toolbar: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px', gap: '16px', flexWrap: 'wrap' },
-  searchWrapper: { display: 'flex', alignItems: 'center', background: '#ffffff', border: '1px solid #cbd5e1', borderRadius: '8px', width: '400px', height: '42px' },
+  searchWrapper: { display: 'flex', alignItems: 'center', background: '#ffffff', border: '1px solid #cbd5e1', borderRadius: '8px', flex: '1 1 280px', height: '42px' },
   searchInput: { border: 'none', outline: 'none', padding: '0 12px', width: '100%', fontSize: '14px', background: 'transparent' },
-  addButton: { display: 'flex', alignItems: 'center', gap: '8px', background: '#0284c7', color: '#ffffff', border: 'none', borderRadius: '8px', padding: '0 16px', height: '42px', fontWeight: 600, cursor: 'pointer' },
+  addButton: { display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', background: '#0284c7', color: '#ffffff', border: 'none', borderRadius: '8px', padding: '0 16px', height: '42px', fontWeight: 600, cursor: 'pointer', flexShrink: 0 },
   emptyContainer: { textAlign: 'center', padding: '60px 20px', background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '12px' },
   emptyTitle: { marginTop: '12px', fontSize: '18px', fontWeight: 600, color: '#1e293b' },
   emptySub: { marginTop: '4px', fontSize: '14px', color: '#64748b' },
-  gridContainer: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '20px' },
+  gridContainer: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '20px' },
   card: { background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '20px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' },
   cardHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px' },
-  statusIndicator: { width: '10px', height: '10px', borderRadius: '50%' },
+  statusIndicator: { width: '10px', height: '10px', borderRadius: '50%', flexShrink: 0 },
   deviceName: { fontSize: '16px', fontWeight: 700, color: '#0f172a', margin: 0 },
   deviceId: { fontSize: '12px', color: '#64748b', margin: '2px 0 0 0' },
   statusBadge: { display: 'flex', alignItems: 'center', padding: '2px 8px', borderRadius: '12px', fontSize: '12px', fontWeight: 600 },
@@ -509,7 +508,7 @@ const styles: Record<string, React.CSSProperties> = {
   actionBtnIconEdit: { background: '#fef3c7', border: '1px solid #fde68a', borderRadius: '6px', width: '32px', height: '32px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' },
   actionBtnIconDanger: { background: '#fee2e2', border: '1px solid #fecaca', borderRadius: '6px', width: '32px', height: '32px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' },
   modalOverlay: { position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(15, 23, 42, 0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '16px' },
-  modalContent: { background: '#ffffff', borderRadius: '12px', width: '100%', maxWidth: '480px', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)', overflow: 'hidden' },
+  modalContent: { background: '#ffffff', borderRadius: '12px', width: '100%', maxWidth: '480px', maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)' },
   modalHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '20px', borderBottom: '1px solid #e2e8f0' },
   modalTitle: { margin: 0, fontSize: '18px', fontWeight: 700, color: '#0f172a' },
   closeBtn: { background: 'transparent', border: 'none', cursor: 'pointer' },

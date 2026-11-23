@@ -28,7 +28,6 @@ declare global {
   }
 }
 
-// Ensure Leaflet Assets are loaded globally as early as possible
 if (typeof document !== 'undefined') {
   if (!document.getElementById('leaflet-css-pkg')) {
     const link = document.createElement('link');
@@ -54,7 +53,6 @@ const FASTAPI_URL =
 
 const STALE_TIMEOUT_MS = 12 * 60 * 60 * 1000;
 
-// Coordinates for target field node location in CDO
 const DEFAULT_LAT = 8.4961;
 const DEFAULT_LNG = 124.6390;
 
@@ -103,7 +101,6 @@ export default function Dashboard({ onLogout }: DashboardProps) {
   const [floaters, setFloaters] = useState<FloaterNode[]>([]);
   const [rawTelemetryList, setRawTelemetryList] = useState<TelemetryRecord[]>([]);
 
-  // Ref to hold current map instance and marker
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
   const mapInstanceRef = useRef<any>(null);
   const markerRef = useRef<any>(null);
@@ -112,7 +109,6 @@ export default function Dashboard({ onLogout }: DashboardProps) {
   const isDeviceManagementTab = ['devices', 'device-management', 'devicemanagement'].includes(normTab);
   const isAccountManagementTab = ['accounts', 'account-management', 'accountmanagement', 'users', 'user-management', 'usermanagement'].includes(normTab);
 
-  // Helper to fetch authorization headers
   const getAuthHeaders = () => {
     const token = localStorage.getItem('token') || localStorage.getItem('access_token');
     return token ? { headers: { Authorization: `Bearer ${token}` } } : {};
@@ -256,7 +252,6 @@ export default function Dashboard({ onLogout }: DashboardProps) {
     fetchNodePrediction(node);
   }, [fetchNodePrediction]);
 
-  // Handle clicking the Pin directly from the Map
   const handleMapPinClick = () => {
     if (floaters.length > 0) {
       handleSelectFloater(floaters[0]);
@@ -274,7 +269,6 @@ export default function Dashboard({ onLogout }: DashboardProps) {
     }
   };
 
-  // Map Initialization Handler
   const initMapInstance = useCallback(() => {
     if (!mapContainerRef.current || !window.L) return;
 
@@ -296,7 +290,6 @@ export default function Dashboard({ onLogout }: DashboardProps) {
 
     mapInstanceRef.current = map;
 
-    // Force tile recalculation sequence for initial page load
     const forceRefresh = () => {
       if (mapInstanceRef.current) {
         mapInstanceRef.current.invalidateSize();
@@ -309,7 +302,6 @@ export default function Dashboard({ onLogout }: DashboardProps) {
     setTimeout(forceRefresh, 800);
   }, []);
 
-  // Effect to construct map when loading completes and DOM container is mounted
   useEffect(() => {
     if (loading || activeTab !== 'dashboard') return;
 
@@ -343,7 +335,6 @@ export default function Dashboard({ onLogout }: DashboardProps) {
     };
   }, [loading, activeTab, initMapInstance]);
 
-  // Marker Updater Effect
   useEffect(() => {
     if (loading || activeTab !== 'dashboard' || !mapInstanceRef.current || !window.L) return;
 
@@ -461,10 +452,10 @@ export default function Dashboard({ onLogout }: DashboardProps) {
     <div style={styles.appContainer}>
       <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} onLogout={onLogout} />
 
-      <div style={styles.workspaceBody}>
+      <main style={styles.workspaceBody}>
         {error && (
           <div style={styles.warningBanner}>
-            <AlertTriangle size={16} style={{ marginRight: '10px' }} />
+            <AlertTriangle size={16} style={{ marginRight: '10px', flexShrink: 0 }} />
             <span>{error}</span>
           </div>
         )}
@@ -538,7 +529,7 @@ export default function Dashboard({ onLogout }: DashboardProps) {
                   <h3 style={{ ...styles.panelBoxTitle, margin: 0 }}>DO Live Vector Stream</h3>
                   <div style={{ ...styles.cryptoBadge, backgroundColor: isHardwareOnline ? 'rgba(16,185,129,0.1)' : 'rgba(239,68,68,0.1)', color: isHardwareOnline ? '#059669' : '#ef4444' }}>
                     <TrendingUp size={12} style={{ marginRight: '4px' }} />
-                    <span>{isHardwareOnline ? 'Real-time Sync' : 'Offline (No Active Stream)'}</span>
+                    <span>{isHardwareOnline ? 'Real-time Sync' : 'Offline'}</span>
                   </div>
                 </div>
 
@@ -580,7 +571,6 @@ export default function Dashboard({ onLogout }: DashboardProps) {
               </div>
             </div>
 
-            {/* RAW TELEMETRY DATABASE STREAM TABLE */}
             <div style={styles.panelBoxFullWidth}>
               <div style={styles.panelHeaderRow}>
                 <div style={styles.flexHeader}>
@@ -669,7 +659,6 @@ export default function Dashboard({ onLogout }: DashboardProps) {
           />
         )}
 
-        {/* NODE INSPECTION MODAL */}
         {selectedFloater && (
           <div style={styles.modalOverlayMask} onClick={() => setSelectedFloater(null)}>
             <div style={styles.modalBodyWindow} onClick={(e) => e.stopPropagation()}>
@@ -840,30 +829,104 @@ export default function Dashboard({ onLogout }: DashboardProps) {
             </div>
           </div>
         )}
-      </div>
+      </main>
     </div>
   );
 }
 
-
 const styles: Record<string, React.CSSProperties> = {
-  appContainer: { display: 'flex', minHeight: '100vh', width: '100vw', backgroundColor: '#f8fafc', overflowX: 'hidden', boxSizing: 'border-box' },
-  workspaceBody: { flex: 1, marginLeft: '260px', width: 'calc(100vw - 260px)', minHeight: '100vh', overflowY: 'auto', padding: '24px', display: 'flex', flexDirection: 'column', gap: '24px', color: '#1e293b', fontFamily: 'sans-serif', boxSizing: 'border-box' },
-  centerStage: { display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', height: '100vh', width: '100vw', backgroundColor: '#f8fafc', fontFamily: 'sans-serif' },
-  spinner: { width: '40px', height: '40px', border: '4px solid #e2e8f0', borderTop: '4px solid #0284c7', borderRadius: '50%', animation: 'spin 1s linear infinite' },
+  appContainer: {
+    display: 'flex',
+    minHeight: '100vh',
+    width: '100%',
+    backgroundColor: '#f8fafc',
+    overflowX: 'hidden',
+    boxSizing: 'border-box'
+  },
+  workspaceBody: {
+    flex: 1,
+    minWidth: 0,
+    minHeight: '100vh',
+    overflowY: 'auto',
+    padding: ' clamp(16px, 3vw, 24px) ',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '24px',
+    color: '#1e293b',
+    fontFamily: 'Inter, sans-serif',
+    boxSizing: 'border-box'
+  },
+  centerStage: {
+    display: 'flex',
+    flexDirection: 'column',
+    justifyContent: 'center',
+    alignItems: 'center',
+    minHeight: '100vh',
+    width: '100%',
+    backgroundColor: '#f8fafc',
+    fontFamily: 'Inter, sans-serif'
+  },
+  spinner: {
+    width: '40px',
+    height: '40px',
+    border: '4px solid #e2e8f0',
+    borderTop: '4px solid #0284c7',
+    borderRadius: '50%',
+    animation: 'spin 1s linear infinite'
+  },
   loadingText: { marginTop: '16px', fontSize: '14px', color: '#64748b', fontWeight: '600' },
-  warningBanner: { display: 'flex', alignItems: 'center', backgroundColor: '#fee2e2', border: '1px solid #ef4444', color: '#b91c1c', padding: '12px 18px', borderRadius: '10px' },
-  kpiContainerRow: { display: 'flex', gap: '16px', width: '100%', boxSizing: 'border-box' },
-  kpiCard: { flex: 1, minWidth: '0', backgroundColor: '#ffffff', padding: '20px', borderRadius: '16px', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05), 0 2px 4px -1px rgba(0,0,0,0.03)', boxSizing: 'border-box' },
+  warningBanner: {
+    display: 'flex',
+    alignItems: 'center',
+    backgroundColor: '#fee2e2',
+    border: '1px solid #ef4444',
+    color: '#b91c1c',
+    padding: '12px 18px',
+    borderRadius: '10px'
+  },
+  kpiContainerRow: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+    gap: '16px',
+    width: '100%',
+    boxSizing: 'border-box'
+  },
+  kpiCard: {
+    backgroundColor: '#ffffff',
+    padding: '20px',
+    borderRadius: '16px',
+    boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05), 0 2px 4px -1px rgba(0,0,0,0.03)',
+    boxSizing: 'border-box'
+  },
   cardHeaderGlow: { display: 'flex', alignItems: 'center', marginBottom: '12px' },
   kpiTitle: { margin: 0, fontSize: '12px', color: '#64748b', fontWeight: '600' },
-  kpiValue: { margin: 0, fontSize: '30px', fontWeight: '800' },
+  kpiValue: { margin: 0, fontSize: 'clamp(24px, 2.5vw, 30px)', fontWeight: '800' },
   unitText: { fontSize: '14px', color: '#64748b' },
   pulseDot: { width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#22c55e', marginRight: '8px' },
-  splitGridDashboard: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px', width: '100%', boxSizing: 'border-box' },
-  panelBox: { backgroundColor: '#ffffff', borderRadius: '16px', padding: '24px', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05), 0 2px 4px -1px rgba(0,0,0,0.03)', minWidth: '0', boxSizing: 'border-box' },
-  panelBoxFullWidth: { backgroundColor: '#ffffff', borderRadius: '16px', padding: '24px', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05), 0 2px 4px -1px rgba(0,0,0,0.03)', width: '100%', boxSizing: 'border-box' },
-  panelHeaderRow: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' },
+  splitGridDashboard: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
+    gap: '24px',
+    width: '100%',
+    boxSizing: 'border-box'
+  },
+  panelBox: {
+    backgroundColor: '#ffffff',
+    borderRadius: '16px',
+    padding: '24px',
+    boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05), 0 2px 4px -1px rgba(0,0,0,0.03)',
+    minWidth: 0,
+    boxSizing: 'border-box'
+  },
+  panelBoxFullWidth: {
+    backgroundColor: '#ffffff',
+    borderRadius: '16px',
+    padding: '24px',
+    boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05), 0 2px 4px -1px rgba(0,0,0,0.03)',
+    width: '100%',
+    boxSizing: 'border-box'
+  },
+  panelHeaderRow: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '8px' },
   panelBoxTitle: { margin: 0, fontSize: '16px', fontWeight: '700', color: '#0f172a' },
   recordBadge: { backgroundColor: '#e0f2fe', color: '#0369a1', fontSize: '11px', fontWeight: '700', padding: '2px 8px', borderRadius: '12px', marginLeft: '8px' },
   latestBadge: { backgroundColor: '#0284c7', color: '#ffffff', fontSize: '10px', fontWeight: '800', padding: '3px 8px', borderRadius: '10px', letterSpacing: '0.05em' },
@@ -877,8 +940,8 @@ const styles: Record<string, React.CSSProperties> = {
   chartWatermarkGridModal: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundImage: `linear-gradient(rgba(30,41,59,0.7) 1px, transparent 1px), linear-gradient(90deg, rgba(30,41,59,0.7) 1px, transparent 1px)`, backgroundSize: '14px 14px', zIndex: 1 },
   flexHeader: { display: 'flex', alignItems: 'center', gap: '8px' },
   flexGroup8: { display: 'flex', alignItems: 'center', gap: '8px' },
-  tableScrollContainer: { maxHeight: '280px', overflowY: 'auto', borderRadius: '8px', border: '1px solid #e2e8f0' },
-  telemetryTable: { width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '13px' },
+  tableScrollContainer: { maxHeight: '280px', overflowX: 'auto', overflowY: 'auto', borderRadius: '8px', border: '1px solid #e2e8f0' },
+  telemetryTable: { width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '13px', minWidth: '640px' },
   tableTh: { padding: '10px 14px', backgroundColor: '#f1f5f9', color: '#475569', fontWeight: '700', borderBottom: '1px solid #cbd5e1', position: 'sticky', top: 0, zIndex: 5 },
   tableTr: { borderBottom: '1px solid #f1f5f9' },
   tableTdBold: { padding: '10px 14px', fontWeight: '700', color: '#0f172a' },
@@ -888,10 +951,10 @@ const styles: Record<string, React.CSSProperties> = {
   tableTdDo: { padding: '10px 14px', color: '#059669', fontWeight: '700' },
   tableTdTime: { padding: '10px 14px', color: '#64748b', fontSize: '12px' },
   emptyTd: { padding: '20px', textAlign: 'center', color: '#94a3b8' },
-  modalOverlayMask: { position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '20px' },
-  modalBodyWindow: { width: '100%', maxWidth: '800px', backgroundColor: '#ffffff', borderRadius: '16px', overflow: 'hidden' },
-  modalSplitGrid: { display: 'grid', gridTemplateColumns: '1fr 1fr' },
-  modalMetaSection: { padding: '32px', backgroundColor: '#ffffff' },
+  modalOverlayMask: { position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '16px' },
+  modalBodyWindow: { width: '100%', maxWidth: '800px', backgroundColor: '#ffffff', borderRadius: '16px', overflow: 'hidden', maxHeight: '90vh', overflowY: 'auto' },
+  modalSplitGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))' },
+  modalMetaSection: { padding: 'clamp(16px, 3vw, 32px)', backgroundColor: '#ffffff' },
   modalHeaderRow: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' },
   modalMainTitle: { margin: '0 0 4px 0', color: '#0f172a', fontSize: '18px', fontWeight: '700' },
   modalMetaLine: { margin: '2px 0', color: '#64748b', fontSize: '12px' },
@@ -904,7 +967,7 @@ const styles: Record<string, React.CSSProperties> = {
   modalGridBrick: { backgroundColor: '#f8fafc', padding: '14px 16px', borderRadius: '12px', border: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'space-between' },
   brickLabelText: { margin: 0, fontSize: '13px', color: '#475569', fontWeight: '600' },
   brickValueText: { fontSize: '16px', fontWeight: '700' },
-  modalChartPane: { backgroundColor: '#0b1120', padding: '32px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' },
+  modalChartPane: { backgroundColor: '#0b1120', padding: 'clamp(16px, 3vw, 32px)', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' },
   modalChartWrapper: { height: '220px', width: '100%', position: 'relative', overflow: 'hidden', borderRadius: '12px' },
   modalChartFooterLabel: { color: '#64748b', fontSize: '11px', textAlign: 'center', marginTop: '16px', letterSpacing: '0.05em' }
 };

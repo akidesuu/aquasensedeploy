@@ -62,14 +62,12 @@ interface AccountForm {
   status: AccountStatus;
 }
 
-// Read API URL dynamically from environment variables, falling back to live Render backend
 const BASE_URL =
   import.meta.env.VITE_API_BASE_URL ||
   import.meta.env.VITE_API_URL ||
   'https://aquasense-backend-osmi.onrender.com';
 const API_BASE_URL = `${BASE_URL.replace(/\/$/, '')}/api/accounts`;
 
-// Helper to retrieve auth headers
 const getAuthHeaders = () => {
   const token = localStorage.getItem('token') || localStorage.getItem('access_token');
   return {
@@ -119,7 +117,6 @@ export default function AccountManagement({
     message: string;
   } | null>(null);
 
-  // Fetch Accounts on Mount with Authentication Headers
   const fetchAccounts = async () => {
     setIsLoading(true);
     try {
@@ -309,9 +306,8 @@ export default function AccountManagement({
   };
 
   return (
-    <div className="aquasense-account-page" style={styles.page}>
-      {/* Header Bar */}
-      <div className="aquasense-account-page-header" style={styles.header}>
+    <div style={styles.page}>
+      <div style={styles.header}>
         <div>
           <div style={styles.eyebrow}>
             <ShieldCheck size={14} />
@@ -328,7 +324,6 @@ export default function AccountManagement({
         </button>
       </div>
 
-      {/* Global Alerts */}
       {notice && !showModal && (
         <div
           style={{
@@ -341,8 +336,7 @@ export default function AccountManagement({
         </div>
       )}
 
-      {/* Dynamic Role & Account Metric Cards */}
-      <div className="aquasense-account-stats" style={styles.statsGrid}>
+      <div style={styles.statsGrid}>
         <div style={styles.statCard}>
           <div style={{ ...styles.statIcon, background: '#eff6ff', color: '#2563eb' }}>
             <Users size={21} />
@@ -381,11 +375,10 @@ export default function AccountManagement({
         </div>
       </div>
 
-      {/* Main Table & Filter Controls Panel */}
       <section style={styles.panel}>
-        <div className="aquasense-account-toolbar" style={styles.toolbar}>
+        <div style={styles.toolbar}>
           <div style={styles.searchBox}>
-            <Search size={18} color="#64748b" />
+            <Search size={18} color="#64748b" style={{ flexShrink: 0 }} />
             <input
               value={search}
               onChange={(event) => setSearch(event.target.value)}
@@ -407,7 +400,6 @@ export default function AccountManagement({
             <select
               value={roleFilter}
               onChange={(event) => setRoleFilter(event.target.value as 'All' | AccountRole)}
-              className="aquasense-account-filter"
               style={styles.filterSelect}
             >
               <option value="All">All Roles</option>
@@ -418,7 +410,6 @@ export default function AccountManagement({
             <select
               value={statusFilter}
               onChange={(event) => setStatusFilter(event.target.value as 'All' | AccountStatus)}
-              className="aquasense-account-filter"
               style={styles.filterSelect}
             >
               <option value="All">All Statuses</option>
@@ -428,7 +419,6 @@ export default function AccountManagement({
           </div>
         </div>
 
-        {/* Data Table */}
         <div style={styles.tableWrapper}>
           <table style={styles.table}>
             <thead>
@@ -446,7 +436,7 @@ export default function AccountManagement({
                 <tr>
                   <td colSpan={6} style={{ ...styles.emptyCell, padding: '40px' }}>
                     <RefreshCw size={24} className="animate-spin" color="#2563eb" />
-                    <span style={{ fontSize: 13, color: '#64748b', marginTop: 8 }}>
+                    <span style={{ fontSize: 13, color: '#64748b', marginTop: 8, display: 'block' }}>
                       Loading database records...
                     </span>
                   </td>
@@ -483,7 +473,7 @@ export default function AccountManagement({
                         <div style={{ minWidth: 0 }}>
                           <div style={styles.accountName}>{account.name}</div>
                           <div style={styles.accountEmail}>
-                            <Mail size={13} />
+                            <Mail size={13} style={{ flexShrink: 0 }} />
                             {account.email}
                           </div>
                           <div style={styles.accountId}>ID: {account.id}</div>
@@ -492,7 +482,7 @@ export default function AccountManagement({
                     </td>
                     <td style={styles.td}>
                       <div style={styles.locationCell}>
-                        <MapPin size={15} color="#64748b" />
+                        <MapPin size={15} color="#64748b" style={{ flexShrink: 0 }} />
                         <span>{account.location}</span>
                       </div>
                     </td>
@@ -515,7 +505,7 @@ export default function AccountManagement({
                     </td>
                     <td style={styles.td}>
                       <div style={styles.dateCell}>
-                        <Clock3 size={14} color="#64748b" />
+                        <Clock3 size={14} color="#64748b" style={{ flexShrink: 0 }} />
                         {account.createdAt}
                       </div>
                     </td>
@@ -568,7 +558,6 @@ export default function AccountManagement({
         </div>
       </section>
 
-      {/* Add / Edit Account Modal */}
       {showModal && (
         <div
           style={styles.overlay}
@@ -623,9 +612,8 @@ export default function AccountManagement({
               </div>
             )}
 
-            <form onSubmit={handleSubmit} style={{ padding: 24 }}>
-              <div className="aquasense-account-form-grid" style={styles.formGrid}>
-                {/* ID Field */}
+            <form onSubmit={handleSubmit} style={{ padding: 'clamp(16px, 3vw, 24px)' }}>
+              <div style={styles.formGrid}>
                 <div style={styles.formGroup}>
                   <label style={styles.label}>
                     Account ID <span style={styles.requiredStar}>*</span>
@@ -639,7 +627,6 @@ export default function AccountManagement({
                     required
                   />
                 </div>
-                {/* Name Field */}
                 <div style={styles.formGroup}>
                   <label style={styles.label}>
                     Full Name <span style={styles.requiredStar}>*</span>
@@ -652,7 +639,6 @@ export default function AccountManagement({
                     required
                   />
                 </div>
-                {/* Email Field */}
                 <div style={styles.formGroup}>
                   <label style={styles.label}>
                     Email Address <span style={styles.requiredStar}>*</span>
@@ -666,7 +652,6 @@ export default function AccountManagement({
                     required
                   />
                 </div>
-                {/* Location Field */}
                 <div style={styles.formGroup}>
                   <label style={styles.label}>
                     Location / Station <span style={styles.requiredStar}>*</span>
@@ -679,7 +664,6 @@ export default function AccountManagement({
                     required
                   />
                 </div>
-                {/* Role Field */}
                 <div style={styles.formGroup}>
                   <label style={styles.label}>
                     Role & Permissions <span style={styles.requiredStar}>*</span>
@@ -694,7 +678,6 @@ export default function AccountManagement({
                     <option value="Super Admin">Super Admin (Full Administrative Authority)</option>
                   </select>
                 </div>
-                {/* Status Field */}
                 <div style={styles.formGroup}>
                   <label style={styles.label}>Account Status</label>
                   <select
@@ -706,7 +689,6 @@ export default function AccountManagement({
                     <option value="Inactive">Inactive</option>
                   </select>
                 </div>
-                {/* Password Input */}
                 <div style={{ ...styles.formGroup, gridColumn: '1 / -1' }}>
                   <label style={styles.label}>
                     {editingAccount ? 'New Password (Optional)' : 'Account Password'}{' '}
@@ -765,7 +747,6 @@ export default function AccountManagement({
         </div>
       )}
 
-      {/* Delete Confirmation Dialog */}
       {deleteTarget && (
         <div style={styles.overlay}>
           <div
@@ -813,7 +794,7 @@ const styles: Record<string, React.CSSProperties> = {
     width: '100%',
     minHeight: '100%',
     boxSizing: 'border-box',
-    padding: '28px',
+    padding: 'clamp(16px, 3vw, 28px)',
     background: '#f8fafc',
     color: '#0f172a'
   },
@@ -822,7 +803,8 @@ const styles: Record<string, React.CSSProperties> = {
     justifyContent: 'space-between',
     alignItems: 'flex-start',
     gap: 20,
-    marginBottom: 24
+    marginBottom: 24,
+    flexWrap: 'wrap'
   },
   eyebrow: {
     display: 'flex',
@@ -836,7 +818,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   title: {
     margin: 0,
-    fontSize: 27,
+    fontSize: 'clamp(20px, 3vw, 27px)',
     fontWeight: 800,
     letterSpacing: '-0.02em'
   },
@@ -858,7 +840,8 @@ const styles: Record<string, React.CSSProperties> = {
     fontWeight: 700,
     fontSize: 13,
     cursor: 'pointer',
-    boxShadow: '0 5px 15px rgba(37, 99, 235, 0.20)'
+    boxShadow: '0 5px 15px rgba(37, 99, 235, 0.20)',
+    flexShrink: 0
   },
   notice: {
     display: 'flex',
@@ -882,7 +865,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   statsGrid: {
     display: 'grid',
-    gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
     gap: 14,
     marginBottom: 18
   },
@@ -939,8 +922,7 @@ const styles: Record<string, React.CSSProperties> = {
     display: 'flex',
     alignItems: 'center',
     gap: 9,
-    flex: 1,
-    minWidth: 260,
+    flex: '1 1 260px',
     height: 40,
     padding: '0 12px',
     border: '1px solid #dbe2ea',
@@ -967,7 +949,8 @@ const styles: Record<string, React.CSSProperties> = {
   filterGroup: {
     display: 'flex',
     alignItems: 'center',
-    gap: 10
+    gap: 10,
+    flexWrap: 'wrap'
   },
   filterSelect: {
     height: 40,
@@ -988,7 +971,8 @@ const styles: Record<string, React.CSSProperties> = {
     width: '100%',
     borderCollapse: 'collapse',
     textAlign: 'left',
-    fontSize: 13
+    fontSize: 13,
+    minWidth: 640
   },
   th: {
     padding: '12px 16px',
@@ -1176,10 +1160,11 @@ const styles: Record<string, React.CSSProperties> = {
   modal: {
     width: '100%',
     maxWidth: 620,
+    maxHeight: '90vh',
+    overflowY: 'auto',
     background: '#fff',
     borderRadius: 14,
-    boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1)',
-    overflow: 'hidden'
+    boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1)'
   },
   modalHeader: {
     display: 'flex',
@@ -1221,7 +1206,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   formGrid: {
     display: 'grid',
-    gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
     gap: 16
   },
   formGroup: {

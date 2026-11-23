@@ -6,7 +6,6 @@ interface LoginProps {
   onLoginSuccess: (username: string) => void;
 }
 
-// Read base URL from environment variable, fallback to live Render backend URL
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL ||
   'https://aquasense-backend-osmi.onrender.com';
@@ -37,14 +36,12 @@ export default function Login({ onLoginSuccess }: LoginProps) {
         throw new Error(data.detail || 'Authentication failed.');
       }
 
-      // STRICT ROLE VALIDATION: Check if the user is a Super Admin (case-insensitive)
       const userRole = String(data.role || data.user?.role || '').trim().toLowerCase();
       
       if (userRole !== 'super admin') {
         throw new Error('Access Denied: Only Super Administrators are authorized to access this dashboard.');
       }
 
-      // FIX: Extract token from response and save it to localStorage
       const authToken = data.token || data.access_token;
       if (authToken) {
         localStorage.setItem('token', authToken);
@@ -66,7 +63,6 @@ export default function Login({ onLoginSuccess }: LoginProps) {
   return (
     <div style={styles.loginContainer}>
       <div style={styles.loginCard}>
-        {/* Portal Branding Header */}
         <div style={styles.brandHeader}>
           <div style={styles.logoBadge}>
             <svg
@@ -81,7 +77,6 @@ export default function Login({ onLoginSuccess }: LoginProps) {
           <p style={styles.subTitle}>SUPER ADMIN PORTAL</p>
         </div>
 
-        {/* Error Alert Box */}
         {error && (
           <div style={styles.errorAlert}>
             <ShieldAlert size={16} style={{ flexShrink: 0 }} />
@@ -89,7 +84,6 @@ export default function Login({ onLoginSuccess }: LoginProps) {
           </div>
         )}
 
-        {/* Interactive Form */}
         <form onSubmit={handleSubmit} style={styles.formContainer}>
           <div style={styles.inputGroup}>
             <label style={styles.inputLabel}>SUPERADMIN USERNAME</label>
@@ -136,36 +130,34 @@ export default function Login({ onLoginSuccess }: LoginProps) {
   );
 }
 
-// (Keep your existing styles object below if you have it in your file)
-
 const styles: Record<string, React.CSSProperties> = {
   loginContainer: {
     display: 'flex',
     justifyContent: 'center',
     alignItems: 'center',
     minHeight: '100vh',
-    width: '100vw',
+    width: '100%',
     backgroundColor: '#f8fafc',
-    fontFamily: 'sans-serif',
+    fontFamily: 'Inter, sans-serif',
     boxSizing: 'border-box',
+    padding: '16px'
   },
   loginCard: {
     width: '100%',
     maxWidth: '420px',
     backgroundColor: '#ffffff',
-    padding: '40px',
+    padding: 'clamp(24px, 5vw, 40px)',
     borderRadius: '24px',
     boxShadow:
       '0 20px 25px -5px rgba(0, 0, 0, 0.05), 0 10px 10px -5px rgba(0, 0, 0, 0.02)',
     border: '1px solid #e2e8f0',
-    margin: '0 16px',
-    boxSizing: 'border-box',
+    boxSizing: 'border-box'
   },
   brandHeader: {
     display: 'flex',
     flexDirection: 'column',
     alignItems: 'center',
-    marginBottom: '32px',
+    marginBottom: '32px'
   },
   logoBadge: {
     width: '48px',
@@ -176,21 +168,21 @@ const styles: Record<string, React.CSSProperties> = {
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: '12px',
-    boxShadow: '0 10px 15px -3px rgba(15, 23, 42, 0.1)',
+    boxShadow: '0 10px 15px -3px rgba(15, 23, 42, 0.1)'
   },
   mainTitle: {
     margin: 0,
     fontSize: '22px',
     fontWeight: '800',
     color: '#0f172a',
-    letterSpacing: '-0.025em',
+    letterSpacing: '-0.025em'
   },
   subTitle: {
     margin: '4px 0 0 0',
     fontSize: '10px',
     fontWeight: '700',
     color: '#94a3b8',
-    letterSpacing: '0.1em',
+    letterSpacing: '0.1em'
   },
   errorAlert: {
     display: 'flex',
@@ -203,32 +195,33 @@ const styles: Record<string, React.CSSProperties> = {
     borderRadius: '12px',
     fontSize: '13px',
     fontWeight: '600',
-    marginBottom: '24px',
+    marginBottom: '24px'
   },
   formContainer: {
     display: 'flex',
     flexDirection: 'column',
-    gap: '20px',
+    gap: '20px'
   },
   inputGroup: {
     display: 'flex',
     flexDirection: 'column',
-    gap: '6px',
+    gap: '6px'
   },
   inputLabel: {
     fontSize: '10px',
     fontWeight: '700',
     color: '#64748b',
-    letterSpacing: '0.05em',
+    letterSpacing: '0.05em'
   },
   inputWrapper: {
     position: 'relative',
     display: 'flex',
-    alignItems: 'center',
+    alignItems: 'center'
   },
   inputIcon: {
     position: 'absolute',
     left: '14px',
+    pointerEvents: 'none'
   },
   textInput: {
     width: '100%',
@@ -239,7 +232,7 @@ const styles: Record<string, React.CSSProperties> = {
     border: '1px solid #e2e8f0',
     borderRadius: '12px',
     outline: 'none',
-    boxSizing: 'border-box',
+    boxSizing: 'border-box'
   },
   submitBtn: {
     display: 'flex',
@@ -254,6 +247,6 @@ const styles: Record<string, React.CSSProperties> = {
     fontWeight: '600',
     cursor: 'pointer',
     marginTop: '8px',
-    boxShadow: '0 4px 6px -1px rgba(15, 23, 42, 0.1)',
-  },
+    boxShadow: '0 4px 6px -1px rgba(15, 23, 42, 0.1)'
+  }
 };

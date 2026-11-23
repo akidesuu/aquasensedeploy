@@ -5,7 +5,9 @@ import {
   Users,
   LogOut,
   Waves,
-  ShieldCheck
+  ShieldCheck,
+  Menu,
+  X
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -20,13 +22,34 @@ export default function Sidebar({
   onLogout
 }: SidebarProps) {
   const [adminName, setAdminName] = useState('Super Admin');
+  const [isMobile, setIsMobile] = useState(
+    typeof window !== 'undefined' ? window.innerWidth < 768 : false
+  );
+  const [isOpen, setIsOpen] = useState(
+    typeof window !== 'undefined' ? window.innerWidth >= 768 : true
+  );
+
+  // Track viewport width for mobile/desktop responsiveness
+  useEffect(() => {
+    const handleResize = () => {
+      const mobile = window.innerWidth < 768;
+      setIsMobile(mobile);
+      if (!mobile) {
+        setIsOpen(true);
+      } else {
+        setIsOpen(false);
+      }
+    };
+
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   // Extract logged-in user profile info from localStorage / JWT token on mount
   useEffect(() => {
     try {
       const token = localStorage.getItem('token') || localStorage.getItem('access_token');
       if (token) {
-        // Simple base64 payload decoder for JWT token claims
         const base64Url = token.split('.')[1];
         if (base64Url) {
           const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
@@ -49,97 +72,153 @@ export default function Sidebar({
     }
   }, []);
 
-  // Enhanced logout function to completely clear tokens and reset state
+  const handleNavSelect = (tab: string) => {
+    setActiveTab(tab);
+    if (isMobile) {
+      setIsOpen(false);
+    }
+  };
+
   const handleLogoutClick = () => {
     localStorage.removeItem('token');
     localStorage.removeItem('access_token');
-    localStorage.clear(); // Purge all cached local storage items
+    localStorage.clear();
     if (onLogout) {
       onLogout();
     }
   };
 
   return (
-    <aside style={styles.sidebar}>
-      {/* Glow Effects */}
-      <div style={styles.topGlow}></div>
-      <div style={styles.bottomGlow}></div>
-
-      {/* Header */}
-      <div style={styles.sidebarHeader}>
-        <div style={styles.logoVectorContainer}>
-          <Waves size={28} color="#3b82f6" style={styles.vectorIconGlow} />
-        </div>
-
-        <div>
-          <h1 style={styles.sidebarBrand}>
-            AquaSense
-          </h1>
-          <p style={styles.sidebarSubtext}>
-            Monitoring System
-          </p>
-        </div>
-      </div>
-
-      {/* Logged-in Super Admin Profile Card */}
-      <div style={styles.adminProfileCard}>
-        <div style={styles.adminAvatar}>
-          {adminName.charAt(0).toUpperCase()}
-        </div>
-        <div style={styles.adminInfo}>
-          <div style={styles.adminNameText} title={adminName}>
-            {adminName}
+    <>
+      {/* Mobile Top Bar with Hamburger Button */}
+      {isMobile && (
+        <header style={styles.mobileTopBar}>
+          <div style={styles.mobileBrandGroup}>
+            <Waves size={22} color="#3b82f6" />
+            <span style={styles.mobileBrandTitle}>AquaSense</span>
           </div>
-          <div style={styles.adminRoleBadge}>
-            <ShieldCheck size={11} color="#fde047" />
-            <span>Super Admin</span>
-          </div>
-        </div>
-      </div>
+          <button
+            type="button"
+            aria-label={isOpen ? 'Close navigation menu' : 'Open navigation menu'}
+            onClick={() => setIsOpen((prev) => !prev)}
+            style={styles.hamburgerBtn}
+          >
+            {isOpen ? <X size={22} color="#ffffff" /> : <Menu size={22} color="#ffffff" />}
+          </button>
+        </header>
+      )}
 
-      {/* Navigation */}
-      <nav style={styles.sidebarNav}>
-        <SidebarButton
-          icon={<LayoutDashboard size={18} />}
-          label="Dashboard"
-          active={activeTab.toLowerCase() === 'dashboard'} 
-          onClick={() => setActiveTab('dashboard')}
+      {/* Backdrop Overlay when Drawer is Open on Mobile */}
+      {isMobile && isOpen && (
+        <div
+          style={styles.backdrop}
+          onClick={() => setIsOpen(false)}
+          aria-hidden="true"
         />
+      )}
 
-        <SidebarButton
-          icon={<Layers size={18} />}
-          label="Device Management"
-          active={activeTab.toLowerCase() === 'device management'}
-          onClick={() => setActiveTab('device management')}
-        />
-
-        <SidebarButton
-          icon={<Users size={18} />}
-          label="Account Management"
-          active={activeTab.toLowerCase() === 'account management'}
-          onClick={() => setActiveTab('account management')}
-        />
-      </nav>
-
-      {/* Logout */}
-      <button
-        style={styles.logoutBtn}
-        onClick={handleLogoutClick}
-        onMouseEnter={(e) => {
-          e.currentTarget.style.background = 'rgba(239,68,68,0.12)';
-          e.currentTarget.style.border = '1px solid rgba(239,68,68,0.25)';
-          e.currentTarget.style.transform = 'translateY(-2px)';
-        }}
-        onMouseLeave={(e) => {
-          e.currentTarget.style.background = 'rgba(255,255,255,0.04)';
-          e.currentTarget.style.border = '1px solid rgba(255,255,255,0.08)';
-          e.currentTarget.style.transform = 'translateY(0px)';
+      <aside
+        style={{
+          ...styles.sidebar,
+          ...(isMobile
+            ? {
+                top: '56px',
+                height: 'calc(100vh - 56px)',
+                transform: isOpen ? 'translateX(0)' : 'translateX(-100%)',
+                transition: 'transform 0.28s ease'
+              }
+            : {
+                transform: 'translateX(0)'
+              })
         }}
       >
-        <LogOut size={18} />
-        <span>Log Out</span>
-      </button>
-    </aside>
+        {/* Glow Effects */}
+        <div style={styles.topGlow}></div>
+        <div style={styles.bottomGlow}></div>
+
+        {/* Header */}
+        <div style={styles.sidebarHeader}>
+          <div style={styles.logoVectorContainer}>
+            <Waves size={28} color="#3b82f6" style={styles.vectorIconGlow} />
+          </div>
+
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <h1 style={styles.sidebarBrand}>AquaSense</h1>
+            <p style={styles.sidebarSubtext}>Monitoring System</p>
+          </div>
+
+          {isMobile && (
+            <button
+              type="button"
+              aria-label="Close sidebar"
+              onClick={() => setIsOpen(false)}
+              style={styles.closeDrawerBtn}
+            >
+              <X size={20} color="#cbd5e1" />
+            </button>
+          )}
+        </div>
+
+        {/* Logged-in Super Admin Profile Card */}
+        <div style={styles.adminProfileCard}>
+          <div style={styles.adminAvatar}>
+            {adminName.charAt(0).toUpperCase()}
+          </div>
+          <div style={styles.adminInfo}>
+            <div style={styles.adminNameText} title={adminName}>
+              {adminName}
+            </div>
+            <div style={styles.adminRoleBadge}>
+              <ShieldCheck size={11} color="#fde047" />
+              <span>Super Admin</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Navigation */}
+        <nav style={styles.sidebarNav}>
+          <SidebarButton
+            icon={<LayoutDashboard size={18} />}
+            label="Dashboard"
+            active={activeTab.toLowerCase() === 'dashboard'}
+            onClick={() => handleNavSelect('dashboard')}
+          />
+
+          <SidebarButton
+            icon={<Layers size={18} />}
+            label="Device Management"
+            active={activeTab.toLowerCase() === 'device management'}
+            onClick={() => handleNavSelect('device management')}
+          />
+
+          <SidebarButton
+            icon={<Users size={18} />}
+            label="Account Management"
+            active={activeTab.toLowerCase() === 'account management'}
+            onClick={() => handleNavSelect('account management')}
+          />
+        </nav>
+
+        {/* Logout */}
+        <button
+          style={styles.logoutBtn}
+          onClick={handleLogoutClick}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.background = 'rgba(239,68,68,0.12)';
+            e.currentTarget.style.border = '1px solid rgba(239,68,68,0.25)';
+            e.currentTarget.style.transform = 'translateY(-2px)';
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.background = 'rgba(255,255,255,0.04)';
+            e.currentTarget.style.border = '1px solid rgba(255,255,255,0.08)';
+            e.currentTarget.style.transform = 'translateY(0px)';
+          }}
+        >
+          <LogOut size={18} />
+          <span>Log Out</span>
+        </button>
+      </aside>
+    </>
   );
 }
 
@@ -185,8 +264,63 @@ function SidebarButton({
 }
 
 const styles = {
+  mobileTopBar: {
+    position: 'fixed' as const,
+    top: 0,
+    left: 0,
+    right: 0,
+    height: '56px',
+    background: 'linear-gradient(90deg, #1e1b4b 0%, #111827 100%)',
+    borderBottom: '1px solid rgba(255,255,255,0.08)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: '0 16px',
+    zIndex: 1001,
+    boxShadow: '0 4px 16px rgba(0,0,0,0.25)'
+  },
+  mobileBrandGroup: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '10px'
+  },
+  mobileBrandTitle: {
+    fontSize: '18px',
+    fontWeight: '800',
+    color: '#ffffff',
+    letterSpacing: '-0.03em'
+  },
+  hamburgerBtn: {
+    width: '40px',
+    height: '40px',
+    borderRadius: '10px',
+    background: 'rgba(255,255,255,0.08)',
+    border: '1px solid rgba(255,255,255,0.14)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    cursor: 'pointer'
+  },
+  closeDrawerBtn: {
+    width: '34px',
+    height: '34px',
+    borderRadius: '8px',
+    background: 'rgba(255,255,255,0.06)',
+    border: '1px solid rgba(255,255,255,0.1)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    cursor: 'pointer'
+  },
+  backdrop: {
+    position: 'fixed' as const,
+    inset: 0,
+    backgroundColor: 'rgba(15, 23, 42, 0.55)',
+    backdropFilter: 'blur(2px)',
+    zIndex: 998
+  },
   sidebar: {
-    width: '260px', 
+    width: '260px',
     height: '100vh',
     position: 'fixed' as const,
     top: 0,
@@ -199,7 +333,8 @@ const styles = {
     overflow: 'hidden',
     borderRight: '1px solid rgba(255,255,255,0.06)',
     boxShadow: '8px 0 30px rgba(0,0,0,0.25)',
-    zIndex: 999
+    zIndex: 999,
+    boxSizing: 'border-box' as const
   },
   topGlow: {
     position: 'absolute' as const,
@@ -240,14 +375,15 @@ const styles = {
     alignItems: 'center',
     justifyContent: 'center',
     backdropFilter: 'blur(10px)',
-    boxShadow: '0 10px 25px rgba(59,130,246,0.25)'
+    boxShadow: '0 10px 25px rgba(59,130,246,0.25)',
+    flexShrink: 0
   },
   vectorIconGlow: {
     filter: 'drop-shadow(0px 0px 6px rgba(59,130,246,0.6))'
   },
   sidebarBrand: {
     margin: 0,
-    fontSize: '24px', 
+    fontSize: '24px',
     fontWeight: '800',
     color: '#ffffff',
     letterSpacing: '-0.04em'
@@ -282,7 +418,8 @@ const styles = {
     fontWeight: '700',
     fontSize: '16px',
     color: '#ffffff',
-    boxShadow: '0 4px 12px rgba(126,34,206,0.3)'
+    boxShadow: '0 4px 12px rgba(126,34,206,0.3)',
+    flexShrink: 0
   },
   adminInfo: {
     display: 'flex',
@@ -313,7 +450,8 @@ const styles = {
     gap: '12px',
     flex: 1,
     position: 'relative' as const,
-    zIndex: 2
+    zIndex: 2,
+    overflowY: 'auto' as const
   },
   navItem: {
     display: 'flex',
