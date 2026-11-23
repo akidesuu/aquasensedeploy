@@ -68,15 +68,32 @@ const BASE_URL =
   'https://aquasense-backend-osmi.onrender.com';
 const API_BASE_URL = BASE_URL.replace(/\/$/, '');
 
-// Consider a node online if it has sent telemetry within this window
 const TELEMETRY_ONLINE_WINDOW_MS = 12 * 60 * 60 * 1000;
 
 const getAuthHeaders = (): Record<string, string> => {
-  const token = localStorage.getItem('token') || localStorage.getItem('access_token');
+  const token =
+    localStorage.getItem('token') ||
+    localStorage.getItem('access_token') ||
+    sessionStorage.getItem('token') ||
+    sessionStorage.getItem('access_token');
   return {
     'Content-Type': 'application/json',
     ...(token ? { Authorization: `Bearer ${token}` } : {})
   };
+};
+
+const extractErrorMessage = async (response: Response): Promise<string> => {
+  try {
+    const data = await response.json();
+    if (typeof data?.detail === 'string') return data.detail;
+    if (Array.isArray(data?.detail)) {
+      return data.detail.map((d: any) => d?.msg || JSON.stringify(d)).join(', ');
+    }
+    if (typeof data?.message === 'string') return data.message;
+  } catch {
+    // Ignore JSON parse error
+  }
+  return `Request failed with status ${response.status}`;
 };
 
 const normalizeDevicesList = (rawData: any): FloaterNode[] => {
@@ -89,9 +106,10 @@ const normalizeDevicesList = (rawData: any): FloaterNode[] => {
     : [];
 
   return list.map((item: any, idx: number) => {
-    const devId = String(item.device_id || item.id || `NODE_${idx + 1}`);
+    const devId = String(item.device_id || item.id || `NODE_${idx + 1}`).trim();
+    const docId = String(item.id || item.device_id || idx + 1).trim();
     return {
-      id: String(item.id || item.device_id || idx + 1),
+      id: docId,
       device_id: devId,
       name: String(item.name || `Node ${devId}`),
       location: String(item.location || 'Unassigned Field Station'),
@@ -155,10 +173,11 @@ const applyTelemetryStatus = (
       latestByDevice.get(String(dev.device_id).trim().toLowerCase()) ||
       latestByDevice.get(String(dev.id).trim().toLowerCase());
 
-    const hasRecentTelemetry =
-      Boolean(match) && Math.abs(nowMs - match!.timeMs) <= TELEMETRY_ONLINE_WINDOW_MS;
+    const hasSentTelemetry = Boolean(match);
+    const isFresh =
+      hasSentTelemetry && Math.abs(nowMs - match!.timeMs) <= TELEMETRY_ONLINE_WINDOW_MS;
 
-    if (hasRecentTelemetry && match) {
+    if (hasSentTelemetry && isFresh && match) {
       const rec = match.record;
       return {
         ...dev,
@@ -184,25 +203,30 @@ const applyTelemetryStatus = (
 };
 
 export default function DeviceManagement({
-  devices: propDevices,
+  devices: _propDevices,
   accounts: propAccounts,
-  onAddDevice: _onAddDevice,
-  onEditDevice: _onEditDevice,
+  onAddDevice,
+  onEditDevice,
   onRemoveDevice,
   onRebootDevice
 }: DeviceManagementProps) {
-  const [devices, setDevices] = useState<FloaterNode[]>(propDevices || []);
+  const [devices, setDevices] = useState<FloaterNode[]>([]);
   const [accounts, setAccounts] = useState<AccountOption[]>(propAccounts || []);
   const [searchTerm, setSearchTerm] = useState('');
   const [isLoadingDevices, setIsLoadingDevices] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
+  const [statusMessage, setStatusMessage] = useState<string | null>(null);
+
+  // Modal & Form State
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [editingDeviceId, setEditingDeviceId] = useState<string | null>(null);
+  const [editingDevice, setEditingDevice] = useState<FloaterNode | null>(null);
   const [newDeviceId, setNewDeviceId] = useState('');
   const [newDeviceName, setNewDeviceName] = useState('');
   const [newLocation, setNewLocation] = useState('');
   const [selectedUserId, setSelectedUserId] = useState<string>('');
+  const [formError, setFormError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   useEffect(() => {
     if (propAccounts && propAccounts.length > 0) {
@@ -240,7 +264,8 @@ export default function DeviceManagement({
       ]);
 
       if (!devicesRes.ok) {
-        throw new Error(`Devices HTTP error! status: ${devicesRes.status}`);
+        const errMsg = await extractErrorMessage(devicesRes);
+        throw new Error(errMsg);
       }
 
       const rawDevices = await devicesRes.json();
@@ -256,8 +281,8 @@ export default function DeviceManagement({
       setDevices(computedDevices);
       setFetchError(null);
     } catch (err: any) {
-      console.error('Failed to fetch devices/telemetry from backend:', err);
-      setFetchError('Unable to load devices or telemetry stream from database.');
+      console.error('Failed to fetch devices/telemetry:', err);
+      setFetchError(err?.message || 'Unable to load devices or telemetry stream from database.');
     } finally {
       setIsLoadingDevices(false);
     }
@@ -287,16 +312,17 @@ export default function DeviceManagement({
   });
 
   const handleOpenAddModal = () => {
-    setEditingDeviceId(null);
+    setEditingDevice(null);
     setNewDeviceId('');
     setNewDeviceName('');
     setNewLocation('');
     setSelectedUserId('');
+    setFormError(null);
     setIsModalOpen(true);
   };
 
   const handleOpenEditModal = (device: FloaterNode) => {
-    setEditingDeviceId(device.id);
+    setEditingDevice(device);
     setNewDeviceId(device.device_id);
     setNewDeviceName(device.name);
     setNewLocation(device.location);
@@ -308,7 +334,15 @@ export default function DeviceManagement({
     setSelectedUserId(
       currentUserId !== undefined && currentUserId !== null ? String(currentUserId) : ''
     );
+    setFormError(null);
     setIsModalOpen(true);
+  };
+
+  const handleCloseModal = () => {
+    if (isSubmitting) return;
+    setIsModalOpen(false);
+    setEditingDevice(null);
+    setFormError(null);
   };
 
   const handleFarmerSelect = (userId: string) => {
@@ -319,73 +353,128 @@ export default function DeviceManagement({
     }
   };
 
-  const handleDeleteDevice = async (id: string) => {
-    if (!window.confirm('Are you sure you want to remove this node?')) return;
+  const handleDeleteDevice = async (device: FloaterNode) => {
+    if (deletingId) return;
+    const confirmed = window.confirm(
+      `Are you sure you want to delete "${device.name}" (${device.device_id})?`
+    );
+    if (!confirmed) return;
+
+    const targetId = encodeURIComponent(device.id || device.device_id);
+    setDeletingId(device.id);
+    setFetchError(null);
+    setStatusMessage(null);
+
     try {
-      const response = await fetch(`${API_BASE_URL}/api/devices/${id}`, {
+      const response = await fetch(`${API_BASE_URL}/api/devices/${targetId}`, {
         method: 'DELETE',
         headers: getAuthHeaders()
       });
-      if (response.ok) {
-        setDevices((prev) => prev.filter((d) => d.id !== id));
-        if (onRemoveDevice) onRemoveDevice(id);
-      } else {
-        alert('Failed to delete the device from the server.');
+
+      if (!response.ok) {
+        const errMsg = await extractErrorMessage(response);
+        throw new Error(errMsg);
       }
-    } catch (err) {
+
+      setDevices((prev) => prev.filter((d) => d.id !== device.id && d.device_id !== device.device_id));
+      setStatusMessage(`Deleted node "${device.device_id}" from database.`);
+      if (onRemoveDevice) onRemoveDevice(device.id);
+      await loadDevicesAndTelemetry(false);
+    } catch (err: any) {
       console.error('Error deleting device:', err);
+      setFetchError(`Delete failed: ${err?.message || 'Unknown error'}`);
+    } finally {
+      setDeletingId(null);
     }
   };
 
   const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    setFormError(null);
+    setStatusMessage(null);
+
     const deviceId = newDeviceId.trim();
     const deviceName = newDeviceName.trim();
     const location = newLocation.trim() || 'Unassigned Field Station';
-    if (!deviceId || !deviceName || isSubmitting) return;
+
+    if (!deviceId) {
+      setFormError('Device ID / MAC Address is required.');
+      return;
+    }
+    if (!deviceName) {
+      setFormError('Node Display Name is required.');
+      return;
+    }
+    if (isSubmitting) return;
 
     setIsSubmitting(true);
+
     const assignedUser = farmerAccounts.find(
       (acc) => String(acc.id) === String(selectedUserId)
     );
 
-    const backendBody = JSON.stringify({
+    const payload = {
       id: deviceId,
       device_id: deviceId,
       name: deviceName,
-      location: location,
-      assignedUserId: assignedUser ? assignedUser.id : null,
+      location,
+      assignedUserId: assignedUser ? String(assignedUser.id) : null,
       assignedUserName: assignedUser ? assignedUser.name : null,
-      assigned_user_id: assignedUser ? assignedUser.id : null
-    });
+      assigned_user_id: assignedUser ? String(assignedUser.id) : null,
+      status: 'Offline',
+      color: '#ef4444'
+    };
 
     try {
-      if (editingDeviceId) {
-        const response = await fetch(`${API_BASE_URL}/api/devices/${editingDeviceId}`, {
+      if (editingDevice) {
+        const editTarget = encodeURIComponent(editingDevice.id || editingDevice.device_id);
+        const response = await fetch(`${API_BASE_URL}/api/devices/${editTarget}`, {
           method: 'PATCH',
           headers: getAuthHeaders(),
-          body: backendBody
+          body: JSON.stringify(payload)
         });
-        if (!response.ok) throw new Error(`Server returned status ${response.status}`);
+
+        if (!response.ok) {
+          const errMsg = await extractErrorMessage(response);
+          throw new Error(errMsg);
+        }
+
+        const updatedJson = await response.json();
+        const normalizedUpdated = normalizeDevicesList([updatedJson])[0];
+        if (normalizedUpdated && onEditDevice) {
+          onEditDevice(normalizedUpdated);
+        }
+        setStatusMessage(`Updated node "${deviceId}" in database.`);
       } else {
         const response = await fetch(`${API_BASE_URL}/api/devices`, {
           method: 'POST',
           headers: getAuthHeaders(),
-          body: backendBody
+          body: JSON.stringify(payload)
         });
-        if (!response.ok) throw new Error(`Server returned status ${response.status}`);
+
+        if (!response.ok) {
+          const errMsg = await extractErrorMessage(response);
+          throw new Error(errMsg);
+        }
+
+        const createdJson = await response.json();
+        const normalizedCreated = normalizeDevicesList([createdJson])[0];
+        if (normalizedCreated && onAddDevice) {
+          onAddDevice(normalizedCreated);
+        }
+        setStatusMessage(`Registered node "${deviceId}" in database.`);
       }
 
       await loadDevicesAndTelemetry(false);
-      setEditingDeviceId(null);
+      setIsModalOpen(false);
+      setEditingDevice(null);
       setNewDeviceId('');
       setNewDeviceName('');
       setNewLocation('');
       setSelectedUserId('');
-      setIsModalOpen(false);
-    } catch (err) {
-      console.error('Failed to save device changes:', err);
-      window.alert('Failed to save device changes. Check console logs.');
+    } catch (err: any) {
+      console.error('Failed to save device:', err);
+      setFormError(err?.message || 'Failed to save node to database.');
     } finally {
       setIsSubmitting(false);
     }
@@ -427,6 +516,13 @@ export default function DeviceManagement({
         <div style={styles.errorBanner}>
           <AlertCircle size={16} color="#b91c1c" />
           <span>{fetchError}</span>
+        </div>
+      )}
+
+      {statusMessage && !fetchError && (
+        <div style={styles.successBanner}>
+          <CheckCircle2 size={16} color="#15803d" />
+          <span>{statusMessage}</span>
         </div>
       )}
 
@@ -556,7 +652,8 @@ export default function DeviceManagement({
                     <button
                       type="button"
                       title="Remove Node"
-                      onClick={() => handleDeleteDevice(device.id)}
+                      disabled={deletingId === device.id}
+                      onClick={() => handleDeleteDevice(device)}
                       style={styles.actionBtnIconDanger}
                     >
                       <Trash2 size={15} color="#dc2626" />
@@ -570,27 +667,34 @@ export default function DeviceManagement({
       )}
 
       {isModalOpen && (
-        <div style={styles.modalOverlay} onClick={() => setIsModalOpen(false)}>
+        <div style={styles.modalOverlay} onClick={handleCloseModal}>
           <div style={styles.modalContent} onClick={(e) => e.stopPropagation()}>
             <div style={styles.modalHeader}>
               <h3 style={styles.modalTitle}>
-                {editingDeviceId ? 'Edit ESP32 Node' : 'Register ESP32 Node'}
+                {editingDevice ? 'Edit ESP32 Node' : 'Register ESP32 Node'}
               </h3>
-              <button type="button" onClick={() => setIsModalOpen(false)} style={styles.closeBtn}>
+              <button type="button" onClick={handleCloseModal} style={styles.closeBtn}>
                 <X size={18} color="#64748b" />
               </button>
             </div>
 
             <form onSubmit={handleSubmit} style={styles.form}>
+              {formError && (
+                <div style={styles.errorBanner}>
+                  <AlertCircle size={16} color="#b91c1c" />
+                  <span>{formError}</span>
+                </div>
+              )}
+
               <div style={styles.inputGroup}>
                 <label style={styles.label}>Device ID / MAC Address</label>
                 <input
                   type="text"
                   required
-                  placeholder="e.g. ESP32_POND_01"
+                  placeholder="e.g. ESP32_POND_03"
                   value={newDeviceId}
                   onChange={(e) => setNewDeviceId(e.target.value)}
-                  disabled={Boolean(editingDeviceId)}
+                  disabled={Boolean(editingDevice)}
                   style={styles.input}
                 />
               </div>
@@ -600,7 +704,7 @@ export default function DeviceManagement({
                 <input
                   type="text"
                   required
-                  placeholder="e.g. Ponderosa Node 1"
+                  placeholder="e.g. Node ESP_POND_03"
                   value={newDeviceName}
                   onChange={(e) => setNewDeviceName(e.target.value)}
                   style={styles.input}
@@ -636,11 +740,11 @@ export default function DeviceManagement({
               </div>
 
               <div style={styles.modalFooter}>
-                <button type="button" onClick={() => setIsModalOpen(false)} style={styles.cancelBtn}>
+                <button type="button" onClick={handleCloseModal} style={styles.cancelBtn}>
                   Cancel
                 </button>
                 <button type="submit" style={styles.submitBtn} disabled={isSubmitting}>
-                  {isSubmitting ? 'Saving...' : editingDeviceId ? 'Save Changes' : 'Register Node'}
+                  {isSubmitting ? 'Saving...' : editingDevice ? 'Save Changes' : 'Register Node'}
                 </button>
               </div>
             </form>
@@ -659,6 +763,7 @@ const styles: Record<string, React.CSSProperties> = {
   refreshButton: { display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', background: '#ffffff', color: '#334155', border: '1px solid #cbd5e1', borderRadius: '8px', padding: '0 14px', height: '42px', fontWeight: 600, fontSize: '13px', cursor: 'pointer', flexShrink: 0 },
   addButton: { display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', background: '#0284c7', color: '#ffffff', border: 'none', borderRadius: '8px', padding: '0 16px', height: '42px', fontWeight: 600, cursor: 'pointer', flexShrink: 0 },
   errorBanner: { display: 'flex', alignItems: 'center', gap: '8px', background: '#fef2f2', border: '1px solid #fca5a5', color: '#b91c1c', padding: '10px 14px', borderRadius: '8px', marginBottom: '16px', fontSize: '13px', fontWeight: 500 },
+  successBanner: { display: 'flex', alignItems: 'center', gap: '8px', background: '#f0fdf4', border: '1px solid #86efac', color: '#15803d', padding: '10px 14px', borderRadius: '8px', marginBottom: '16px', fontSize: '13px', fontWeight: 500 },
   emptyContainer: { textAlign: 'center', padding: '60px 20px', background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '12px' },
   emptyTitle: { marginTop: '12px', fontSize: '18px', fontWeight: 600, color: '#1e293b' },
   emptySub: { marginTop: '4px', fontSize: '14px', color: '#64748b' },
