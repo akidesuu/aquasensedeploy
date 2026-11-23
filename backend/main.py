@@ -5,26 +5,25 @@ from enum import Enum
 import os
 from typing import Dict, List, Optional, Union
 import bcrypt
+from bson import ObjectId
 import certifi
-import joblib
-import jwt
-import numpy as np
-import pandas as pd
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from fastapi.templating import Jinja2Templates
+import joblib
+import jwt
 from keras.layers import Dense, Dropout, Input, LSTM
 from keras.models import Sequential, load_model
+import numpy as np
+import pandas as pd
 from pydantic import BaseModel, Field
 from pymongo import MongoClient
-from bson import ObjectId
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
-from fastapi import APIRouter, HTTPException
 
 #
 # 1. JWT CONFIGURATION
@@ -77,7 +76,7 @@ app.add_middleware(
         "http://localhost:5173",
         "http://127.0.0.1:3000",
         "http://127.0.0.1:5173",
-        "https://aquasensedeploy-gray.vercel.app",  # Your exact Vercel frontend domain
+        "https://aquasensedeploy-gray.vercel.app",
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -125,8 +124,25 @@ else:
     print(">>>> Warning: ML model artifacts incomplete or missing. Run retraining pass to generate model files.")
 
 #
-# 5. SECURITY & JWT UTILITIES
+# 5. SECURITY, DATETIME & JWT UTILITIES
 #
+def _to_utc_aware(dt_val) -> Optional[datetime]:
+    if dt_val is None:
+        return None
+    if isinstance(dt_val, str):
+        s = dt_val.strip()
+        if not s:
+            return None
+        try:
+            dt_val = datetime.fromisoformat(s.replace("Z", "+00:00"))
+        except Exception:
+            return None
+    if isinstance(dt_val, datetime):
+        if dt_val.tzinfo is None:
+            return dt_val.replace(tzinfo=timezone.utc)
+        return dt_val.astimezone(timezone.utc)
+    return None
+
 def hash_password(password: str) -> str:
     password_bytes = password.encode("utf-8")
     salt = bcrypt.gensalt(12)
@@ -189,7 +205,7 @@ def get_current_user(
 def require_super_admin(current_user: dict = Depends(get_current_user)) -> dict:
     email = current_user.get("sub")
     role = str(current_user.get("role", "")).strip().lower()
-    
+
     if db is not None and email:
         db_user = db["accounts"].find_one({"email": email.lower()})
         if db_user:
@@ -242,7 +258,7 @@ def _run_hybrid_inference(buffer_records: list) -> float:
     input_df_features = df_buf[FEATURE_COLUMNS]
     X_scaled = scaler_x.transform(input_df_features.values)
     X_seq = np.expand_dims(X_scaled, axis=0)
-    
+
     trend = lstm_model.predict(X_seq, verbose=0)
     current_raw = X_scaled[-1].reshape(1, -1)
     hybrid_input = np.hstack((current_raw, trend))
@@ -372,7 +388,7 @@ def register_user(payload: UserAuthPayload):
     user_identifier = (payload.email or payload.username or "").strip()
     if not user_identifier:
         raise HTTPException(status_code=400, detail="Email or username is required.")
-    
+
     existing_account = db["accounts"].find_one(
         {
             "$or": [
@@ -421,7 +437,7 @@ def login_user(payload: UserAuthPayload):
     user_identifier = (payload.email or payload.username or "").strip()
     if not user_identifier:
         raise HTTPException(status_code=400, detail="Email or username is required.")
-    
+
     user_record = db["accounts"].find_one(
         {
             "$or": [
@@ -435,9 +451,9 @@ def login_user(payload: UserAuthPayload):
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid email or password configuration.",
         )
-    
+
     user_role = str(user_record.get("role", "Farmer")).strip()
-    
+
     token = create_access_token(
         subject=str(user_record.get("email")),
         extra_claims={
@@ -446,7 +462,7 @@ def login_user(payload: UserAuthPayload):
             "role": user_role,
         },
     )
-    
+
     return {
         "status": "Authenticated",
         "id": user_record.get("id"),
@@ -475,7 +491,7 @@ def get_user_profile(user_id: str, current_user: dict = Depends(get_current_user
     user_doc = db["accounts"].find_one({"$or": [{"id": user_id}, {"email": user_id.lower()}]})
     if not user_doc:
         raise HTTPException(status_code=404, detail="User not found.")
-    
+
     return {
         "id": user_doc.get("id"),
         "name": user_doc.get("name"),
@@ -517,13 +533,13 @@ def get_all_accounts(current_user: dict = Depends(require_super_admin)):
     for doc in cursor:
         accounts.append(
             AccountResponse(
-                id=doc.get("id", ""),
-                name=doc.get("name", ""),
-                email=doc.get("email", ""),
-                location=doc.get("location", ""),
-                role=doc.get("role", "Farmer"),
-                status=doc.get("status", "Active"),
-                createdAt=doc.get("createdAt", ""),
+                id=str(doc.get("id", "")),
+                name=str(doc.get("name", "")),
+                email=str(doc.get("email", "")),
+                location=str(doc.get("location", "")),
+                role=str(doc.get("role", "Farmer")),
+                status=str(doc.get("status", "Active")),
+                createdAt=str(doc.get("createdAt", "")),
             )
         )
     return accounts
@@ -574,7 +590,7 @@ def update_account(account_id: str, payload: AccountUpdatePayload, current_user:
     existing_doc = db["accounts"].find_one({"id": account_id})
     if not existing_doc:
         raise HTTPException(status_code=404, detail="Account not found.")
-    
+
     update_fields = {}
     if payload.name:
         update_fields["name"] = payload.name.strip()
@@ -597,10 +613,10 @@ def update_account(account_id: str, payload: AccountUpdatePayload, current_user:
         if len(payload.password.strip()) < 6:
             raise HTTPException(status_code=400, detail="Password must be at least 6 characters.")
         update_fields["password_hash"] = hash_password(payload.password.strip())
-        
+
     if update_fields:
         db["accounts"].update_one({"id": account_id}, {"$set": update_fields})
-        
+
     updated_doc = db["accounts"].find_one({"id": account_id})
     return AccountResponse(
         id=updated_doc["id"],
@@ -630,68 +646,73 @@ def delete_account(account_id: str, current_user: dict = Depends(require_super_a
 def get_all_devices(current_user: dict = Depends(get_current_user)):
     if db is None:
         raise HTTPException(status_code=500, detail="Database connection is unavailable.")
-    cursor = db["devices"].find()
-    devices = []
-    now_utc = datetime.now(timezone.utc)
-    
-    for doc in cursor:
-        dev_id = doc.get("device_id") or doc.get("id", "")
-        latest_tel = db["raw_telemetry"].find_one({"device_id": dev_id}, sort=[("_id", -1)])
-        
-        status_val = doc.get("status", "Offline")
-        metrics = None
-        
-        if latest_tel:
-            tel_time = latest_tel.get("timestamp")
-            if tel_time:
-                if isinstance(tel_time, str):
-                    try:
-                        tel_time = datetime.fromisoformat(tel_time.replace("Z", "+00:00"))
-                    except:
-                        pass
-                if isinstance(tel_time, datetime):
-                    if (now_utc - tel_time).total_seconds() < 600:
-                        status_val = "Online"
-            else:
-                status_val = "Online"
-                
-            metrics = {
-                "ph": latest_tel.get("ph", 7.0),
-                "temperature": latest_tel.get("temperature", 25.0),
-                "turbidity": latest_tel.get("turbidity", 0.0)
-            }
-        
-        devices.append(
-            DeviceResponse(
-                id=str(doc.get("id", dev_id)),
-                device_id=dev_id,
-                name=doc.get("name", "Unnamed Node"),
-                location=doc.get("location", "Unassigned Field Station"),
-                assignedUserId=doc.get("assignedUserId"),
-                assignedUserName=doc.get("assignedUserName"),
-                status=status_val,
-                color="#22c55e" if status_val == "Online" else "#ef4444",
-                metrics=metrics if status_val == "Online" else None
+    try:
+        cursor = db["devices"].find()
+        devices = []
+
+        for doc in cursor:
+            dev_id = str(doc.get("device_id") or doc.get("id") or "").strip()
+            latest_tel = db["raw_telemetry"].find_one(
+                {"$or": [{"device_id": dev_id}, {"id": dev_id}]},
+                sort=[("_id", -1)]
+            ) if dev_id else None
+
+            # Online if and only if telemetry has been sent to the database
+            has_sent_data = latest_tel is not None
+            status_val = "Online" if has_sent_data else "Offline"
+
+            metrics = None
+            if has_sent_data and latest_tel:
+                metrics = {
+                    "ph": float(latest_tel.get("ph", 7.0) or 0.0),
+                    "temperature": float(latest_tel.get("temperature", 25.0) or 0.0),
+                    "turbidity": float(latest_tel.get("turbidity", 0.0) or 0.0),
+                }
+
+            assigned_uid = doc.get("assignedUserId") or doc.get("assigned_user_id")
+            assigned_name = doc.get("assignedUserName") or doc.get("assigned_user_name")
+
+            devices.append(
+                DeviceResponse(
+                    id=str(doc.get("id") or dev_id),
+                    device_id=dev_id,
+                    name=str(doc.get("name", "Unnamed Node")),
+                    location=str(doc.get("location", "Unassigned Field Station")),
+                    assignedUserId=assigned_uid,
+                    assignedUserName=assigned_name,
+                    status=status_val,
+                    color="#22c55e" if status_val == "Online" else "#ef4444",
+                    metrics=metrics,
+                )
             )
-        )
-    return devices
+        return devices
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/devices", response_model=DeviceResponse, status_code=status.HTTP_201_CREATED)
 @app.post("/api/devices/create/", response_model=DeviceResponse, status_code=status.HTTP_201_CREATED)
 def register_device(payload: DeviceCreatePayload, current_user: dict = Depends(require_super_admin)):
     if db is None:
         raise HTTPException(status_code=500, detail="Database connection is unavailable.")
-    
-    dev_id = str(payload.device_id or payload.id or f"ESP32_{int(datetime.now().timestamp())}").strip()
+
+    dev_id = str(payload.device_id or payload.id or f"ESP32_{int(datetime.now(timezone.utc).timestamp())}").strip()
     assigned_uid = payload.assignedUserId or payload.assigned_user_id
-    
-    assigned_name = None
+
+    assigned_name = payload.assignedUserName
     if assigned_uid and str(assigned_uid).strip() not in ["", "none", "null"]:
         clean_uid = str(assigned_uid).strip()
-        account = db["accounts"].find_one({"$or": [{"id": clean_uid}, {"email": clean_uid}]})
+        account = db["accounts"].find_one({"$or": [{"id": clean_uid}, {"email": clean_uid.lower()}]})
         if account:
             assigned_name = account.get("name")
             assigned_uid = account.get("id")
+
+    latest_tel = db["raw_telemetry"].find_one(
+        {"$or": [{"device_id": dev_id}, {"id": dev_id}]},
+        sort=[("_id", -1)]
+    )
+    computed_status = "Online" if latest_tel is not None else "Offline"
 
     device_doc = {
         "id": dev_id,
@@ -700,8 +721,8 @@ def register_device(payload: DeviceCreatePayload, current_user: dict = Depends(r
         "location": payload.location.strip() if payload.location else "Unassigned Field Station",
         "assignedUserId": str(assigned_uid).strip() if assigned_uid and str(assigned_uid).strip() not in ["", "none", "null"] else None,
         "assignedUserName": assigned_name,
-        "status": payload.status.strip() if payload.status else "Offline",
-        "color": payload.color.strip() if payload.color else "#22c55e"
+        "status": computed_status,
+        "color": "#22c55e" if computed_status == "Online" else "#ef4444",
     }
 
     db["devices"].update_one(
@@ -709,10 +730,18 @@ def register_device(payload: DeviceCreatePayload, current_user: dict = Depends(r
         {"$set": device_doc},
         upsert=True
     )
-    
+
     saved_doc = db["devices"].find_one({"$or": [{"id": dev_id}, {"device_id": dev_id}]})
     if not saved_doc:
         raise HTTPException(status_code=500, detail="Failed to retrieve registered device from database.")
+
+    metrics = None
+    if latest_tel:
+        metrics = {
+            "ph": float(latest_tel.get("ph", 7.0) or 0.0),
+            "temperature": float(latest_tel.get("temperature", 25.0) or 0.0),
+            "turbidity": float(latest_tel.get("turbidity", 0.0) or 0.0),
+        }
 
     return DeviceResponse(
         id=str(saved_doc.get("id") or saved_doc.get("device_id") or dev_id),
@@ -721,9 +750,9 @@ def register_device(payload: DeviceCreatePayload, current_user: dict = Depends(r
         location=str(saved_doc.get("location", "Unassigned")),
         assignedUserId=saved_doc.get("assignedUserId"),
         assignedUserName=saved_doc.get("assignedUserName"),
-        status=str(saved_doc.get("status", "Offline")),
-        color=str(saved_doc.get("color", "#22c55e")),
-        metrics=None
+        status=computed_status,
+        color="#22c55e" if computed_status == "Online" else "#ef4444",
+        metrics=metrics,
     )
 
 def _process_device_update(device_id: str, payload: DeviceUpdatePayload):
@@ -734,42 +763,57 @@ def _process_device_update(device_id: str, payload: DeviceUpdatePayload):
     )
     if not existing_doc:
         raise HTTPException(status_code=404, detail="Device not found.")
-    
+
     raw_data = payload.model_dump(exclude_unset=True)
     update_fields = {}
     for k, v in raw_data.items():
         if v is not None:
             update_fields[k] = v
-            
+
     if "assigned_user" in update_fields and "assignedUserId" not in update_fields:
         update_fields["assignedUserId"] = update_fields.pop("assigned_user")
     if "assigned_user_id" in update_fields and "assignedUserId" not in update_fields:
         update_fields["assignedUserId"] = update_fields.pop("assigned_user_id")
-        
+
     if update_fields.get("assignedUserId") and not update_fields.get("assignedUserName"):
         account = db["accounts"].find_one({"id": str(update_fields["assignedUserId"])})
         if account:
             update_fields["assignedUserName"] = account.get("name")
-            
+
     if update_fields:
         db["devices"].update_one(
             {"$or": [{"id": device_id}, {"device_id": device_id}]},
             {"$set": update_fields},
         )
-        
+
     updated_doc = db["devices"].find_one(
         {"$or": [{"id": device_id}, {"device_id": device_id}]}
     )
+    real_dev_id = str(updated_doc.get("device_id") or updated_doc.get("id") or device_id)
+    latest_tel = db["raw_telemetry"].find_one(
+        {"$or": [{"device_id": real_dev_id}, {"id": real_dev_id}]},
+        sort=[("_id", -1)]
+    )
+    computed_status = "Online" if latest_tel is not None else "Offline"
+
+    metrics = None
+    if latest_tel:
+        metrics = {
+            "ph": float(latest_tel.get("ph", 7.0) or 0.0),
+            "temperature": float(latest_tel.get("temperature", 25.0) or 0.0),
+            "turbidity": float(latest_tel.get("turbidity", 0.0) or 0.0),
+        }
+
     return DeviceResponse(
         id=str(updated_doc.get("id", updated_doc.get("device_id"))),
-        device_id=updated_doc.get("device_id"),
-        name=updated_doc.get("name"),
-        location=updated_doc.get("location"),
+        device_id=real_dev_id,
+        name=str(updated_doc.get("name", "Unnamed Node")),
+        location=str(updated_doc.get("location", "Unassigned")),
         assignedUserId=updated_doc.get("assignedUserId"),
         assignedUserName=updated_doc.get("assignedUserName"),
-        status=updated_doc.get("status", "Offline"),
-        color=updated_doc.get("color", "#22c55e"),
-        metrics=None
+        status=computed_status,
+        color="#22c55e" if computed_status == "Online" else "#ef4444",
+        metrics=metrics,
     )
 
 @app.put("/api/devices/{device_id}", response_model=DeviceResponse)
@@ -809,38 +853,51 @@ class AlertResponse(BaseModel):
     is_resolved: bool
 
 @app.get("/api/alerts", response_model=List[AlertResponse])
-async def get_alerts():
+def get_alerts(current_user: dict = Depends(get_current_user)):
+    if db is None:
+        raise HTTPException(status_code=500, detail="Database connection is unavailable.")
     try:
-        alerts_cursor = db.alerts.find().sort("timestamp", -1)
-        alerts = await alerts_cursor.to_list(length=100)
+        alerts_cursor = db["alerts"].find().sort("timestamp", -1).limit(100)
         formatted_alerts = []
-        for alt in alerts:
-            formatted_alerts.append({
-                "id": str(alt.get("id", alt.get("_id"))),
-                "device_id": str(alt.get("device_id", "Unknown")),
-                "device_name": alt.get("device_name", "Floater"),
-                "location": alt.get("location", "AquaSense Pond"),
-                "severity": alt.get("severity", "info"),
-                "title": alt.get("title", "System Alert"),
-                "message": alt.get("message", "Telemetry anomaly recorded."),
-                "timestamp": alt.get("timestamp", "Just now"),
-                "is_resolved": bool(alt.get("is_resolved", False)),
-            })
+        for alt in alerts_cursor:
+            ts = alt.get("timestamp", "Just now")
+            if isinstance(ts, datetime):
+                ts = ts.isoformat()
+            formatted_alerts.append(
+                AlertResponse(
+                    id=str(alt.get("id") or alt.get("_id")),
+                    device_id=str(alt.get("device_id", "Unknown")),
+                    device_name=str(alt.get("device_name", "Floater")),
+                    location=str(alt.get("location", "AquaSense Pond")),
+                    severity=str(alt.get("severity", "info")),
+                    title=str(alt.get("title", "System Alert")),
+                    message=str(alt.get("message", "Telemetry anomaly recorded.")),
+                    timestamp=str(ts),
+                    is_resolved=bool(alt.get("is_resolved", False)),
+                )
+            )
         return formatted_alerts
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.put("/api/alerts/{alert_id}/resolve")
-async def resolve_alert(alert_id: str, data: dict):
+def resolve_alert(alert_id: str, data: dict, current_user: dict = Depends(get_current_user)):
+    if db is None:
+        raise HTTPException(status_code=500, detail="Database connection is unavailable.")
     try:
-        is_resolved = data.get("is_resolved", True)
-        result = await db.alerts.update_one(
-            {"_id": ObjectId(alert_id)},
+        is_resolved = bool(data.get("is_resolved", True))
+        query = {"id": alert_id}
+        if ObjectId.is_valid(alert_id) and not db["alerts"].find_one(query):
+            query = {"_id": ObjectId(alert_id)}
+        result = db["alerts"].update_one(
+            query,
             {"$set": {"is_resolved": is_resolved}}
         )
         if result.matched_count == 0:
             raise HTTPException(status_code=404, detail="Alert not found")
         return {"status": "success", "is_resolved": is_resolved}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -866,7 +923,7 @@ async def receive_telemetry(payload: TelemetryPayload):
     }
     ml_result = await predict_dissolved_oxygen(payload.device_id, sensor_record)
     predicted_do = ml_result.get("dissolved_oxygen_mg_L", round(estimated_do, 4))
-    
+
     telemetry_doc = {
         "device_id": payload.device_id,
         "temperature": payload.temperature,
@@ -881,7 +938,7 @@ async def receive_telemetry(payload: TelemetryPayload):
         "timestamp": now,
     }
     db["raw_telemetry"].insert_one(telemetry_doc)
-    
+
     log_doc = {
         "device_id": payload.device_id,
         "temperature": payload.temperature,
@@ -912,6 +969,9 @@ def get_telemetry(
         telemetry_records = []
         for record in cursor:
             record["_id"] = str(record["_id"])
+            ts = record.get("timestamp")
+            if isinstance(ts, datetime):
+                record["timestamp"] = ts.isoformat()
             telemetry_records.append(record)
         return telemetry_records
     except Exception as e:
@@ -942,6 +1002,9 @@ def get_latest_telemetry(
                 detail=f"No telemetry data found for device '{device_id}'." if device_id else "No telemetry data found.",
             )
         latest_record["_id"] = str(latest_record["_id"])
+        ts = latest_record.get("timestamp")
+        if isinstance(ts, datetime):
+            latest_record["timestamp"] = ts.isoformat()
         return latest_record
     except HTTPException:
         raise
@@ -962,6 +1025,9 @@ def get_telemetry_history(
         history = []
         for record in cursor:
             record["_id"] = str(record["_id"])
+            ts = record.get("timestamp")
+            if isinstance(ts, datetime):
+                record["timestamp"] = ts.isoformat()
             history.append(record)
         return history
     except Exception as e:
@@ -1006,6 +1072,9 @@ def get_latest_prediction(current_user: dict = Depends(get_current_user)):
                 "status": "Stable",
             }
         latest_record["_id"] = str(latest_record["_id"])
+        ts = latest_record.get("timestamp")
+        if isinstance(ts, datetime):
+            latest_record["timestamp"] = ts.isoformat()
         return latest_record
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -1023,7 +1092,7 @@ def retrain_model_pipeline(
             df = pd.read_excel(file_path)
         else:
             df = pd.read_csv(file_path)
-            
+
         df = df.dropna(subset=["temperature", "ph", "DO(mg/L)"]).copy()
         df = df.rename(
             columns={
@@ -1046,7 +1115,7 @@ def retrain_model_pipeline(
         else:
             df["sin_time"] = 0.0
             df["cos_time"] = 0.0
-            
+
         df["DO_smooth"] = df["DO"].rolling(window=5, min_periods=1).mean()
         df["DO_lag1"] = df["DO_smooth"].shift(1)
         df["DO_lag2"] = df["DO_smooth"].shift(2)
@@ -1058,34 +1127,34 @@ def retrain_model_pipeline(
         df["temp_roll10_mean"] = df["Temperature"].rolling(10, min_periods=1).mean()
         df["ph_roll10_mean"] = df["pH"].rolling(10, min_periods=1).mean()
         df["ph_temp_ratio"] = df["pH"] / (df["Temperature"] + 1e-5)
-        
+
         df_model = df.dropna(
             subset=["DO_lag1", "DO_lag2", "DO_lag3", "DO_smooth"]
         ).reset_index(drop=True)
-        
+
         target_col = "DO_smooth"
         for col in FEATURE_COLUMNS + [target_col]:
             df_model[col] = pd.to_numeric(df_model[col], errors="coerce").fillna(0)
-            
+
         X_raw = df_model[FEATURE_COLUMNS].values
         y_raw = df_model[target_col].values
-        
+
         new_scaler_x = StandardScaler()
         new_scaler_y = StandardScaler()
         X_scaled = new_scaler_x.fit_transform(X_raw)
         y_scaled = new_scaler_y.fit_transform(y_raw.reshape(-1, 1))
-        
+
         X_seq, y_seq = [], []
         for i in range(len(X_scaled) - TIME_STEPS):
             X_seq.append(X_scaled[i:(i + TIME_STEPS)])
             y_seq.append(y_scaled[i + TIME_STEPS])
         X_seq = np.array(X_seq)
         y_seq = np.array(y_seq)
-        
+
         X_train, X_test, y_train, y_test = train_test_split(
             X_seq, y_seq, test_size=0.2, random_state=42
         )
-        
+
         new_lstm_model = Sequential(
             [
                 Input(shape=(TIME_STEPS, len(FEATURE_COLUMNS))),
@@ -1106,40 +1175,39 @@ def retrain_model_pipeline(
             validation_split=0.1,
             verbose=0,
         )
-        
+
         lstm_train_preds = new_lstm_model.predict(X_train, verbose=0)
         lstm_test_preds = new_lstm_model.predict(X_test, verbose=0)
-        
+
         X_train_flat = X_train[:, -1, :]
         X_test_flat = X_test[:, -1, :]
-        
+
         rf_X_train = np.hstack((X_train_flat, lstm_train_preds))
         rf_X_test = np.hstack((X_test_flat, lstm_test_preds))
-        
+
         new_rf_model = RandomForestRegressor(
             n_estimators=500, max_depth=15, min_samples_split=2, random_state=42
         )
         new_rf_model.fit(rf_X_train, y_train.ravel())
-        
+
         rf_preds_scaled = new_rf_model.predict(rf_X_test)
         final_preds = new_scaler_y.inverse_transform(rf_preds_scaled.reshape(-1, 1))
         y_actual = new_scaler_y.inverse_transform(y_test)
-        
+
         rmse = float(np.sqrt(mean_squared_error(y_actual, final_preds)))
         mae = float(mean_absolute_error(y_actual, final_preds))
         r2 = float(r2_score(y_actual, final_preds))
-        
+
         new_lstm_model.save(LSTM_MODEL_FILE)
         joblib.dump(new_rf_model, RF_MODEL_FILE)
         joblib.dump(new_scaler_x, SCALER_X_FILE)
         joblib.dump(new_scaler_y, SCALER_Y_FILE)
-        
-        global lstm_model, rf_model, scaler_x, scaler_y
+
         lstm_model = new_lstm_model
         rf_model = new_rf_model
         scaler_x = new_scaler_x
         scaler_y = new_scaler_y
-        
+
         return {
             "status": "success",
             "message": "Model retrained and saved successfully.",
