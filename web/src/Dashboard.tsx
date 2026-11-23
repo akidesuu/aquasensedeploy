@@ -284,15 +284,14 @@ export default function Dashboard({ onLogout }: DashboardProps) {
     const map = window.L.map(mapContainerRef.current, {
       center: [DEFAULT_LAT, DEFAULT_LNG],
       zoom: 16,
-      minZoom: 12,
+      minZoom: 3,
       maxZoom: 19,
       zoomControl: true,
-      dragging: false,
-      scrollWheelZoom: false,
-      doubleClickZoom: false,
-      touchZoom: false,
-      boxZoom: false,
-      keyboard: false
+      dragging: true,
+      scrollWheelZoom: true,
+      doubleClickZoom: true,
+      touchZoom: true,
+      boxZoom: true
     });
 
     window.L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -300,19 +299,11 @@ export default function Dashboard({ onLogout }: DashboardProps) {
       attribution: '© AquaSense GIS | OpenStreetMap'
     }).addTo(map);
 
-    // Keep zoom anchored strictly on the fixed target coordinates
-    map.on('zoomend', () => {
-      map.setView([DEFAULT_LAT, DEFAULT_LNG], map.getZoom(), { animate: false });
-    });
-
     mapInstanceRef.current = map;
 
     const forceRefresh = () => {
       if (mapInstanceRef.current) {
         mapInstanceRef.current.invalidateSize();
-        mapInstanceRef.current.setView([DEFAULT_LAT, DEFAULT_LNG], mapInstanceRef.current.getZoom(), {
-          animate: false
-        });
       }
     };
 
@@ -359,11 +350,6 @@ export default function Dashboard({ onLogout }: DashboardProps) {
     if (mapInstanceRef.current) {
       setTimeout(() => {
         mapInstanceRef.current?.invalidateSize();
-        mapInstanceRef.current?.setView(
-          [DEFAULT_LAT, DEFAULT_LNG],
-          mapInstanceRef.current.getZoom(),
-          { animate: false }
-        );
       }, 260);
     }
   }, [sidebarState.isOpen, sidebarState.isMobile]);
@@ -376,8 +362,8 @@ export default function Dashboard({ onLogout }: DashboardProps) {
     const pinColor = isOnline ? '#22c55e' : '#ef4444';
 
     const pinIconHtml = `
-      <div style="cursor: pointer; transform: translate(-50%, -100%); transition: transform 0.2s ease;">
-        <svg width="38" height="38" viewBox="0 0 24 24" fill="${pinColor}" stroke="#ffffff" stroke-width="1.5" style="filter: drop-shadow(0 4px 6px rgba(0,0,0,0.3));">
+      <div style="width: 38px; height: 38px; display: flex; align-items: center; justify-content: center; cursor: pointer;">
+        <svg width="38" height="38" viewBox="0 0 24 24" fill="${pinColor}" stroke="#ffffff" stroke-width="1.5" style="filter: drop-shadow(0 4px 6px rgba(0,0,0,0.3)); display: block;">
           <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z"/>
           <circle cx="12" cy="9" r="2.5" fill="#ffffff"/>
         </svg>
