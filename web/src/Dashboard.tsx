@@ -284,7 +284,15 @@ export default function Dashboard({ onLogout }: DashboardProps) {
     const map = window.L.map(mapContainerRef.current, {
       center: [DEFAULT_LAT, DEFAULT_LNG],
       zoom: 16,
-      zoomControl: true
+      minZoom: 12,
+      maxZoom: 19,
+      zoomControl: true,
+      dragging: false,
+      scrollWheelZoom: false,
+      doubleClickZoom: false,
+      touchZoom: false,
+      boxZoom: false,
+      keyboard: false
     });
 
     window.L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -292,11 +300,19 @@ export default function Dashboard({ onLogout }: DashboardProps) {
       attribution: '© AquaSense GIS | OpenStreetMap'
     }).addTo(map);
 
+    // Keep zoom anchored strictly on the fixed target coordinates
+    map.on('zoomend', () => {
+      map.setView([DEFAULT_LAT, DEFAULT_LNG], map.getZoom(), { animate: false });
+    });
+
     mapInstanceRef.current = map;
 
     const forceRefresh = () => {
       if (mapInstanceRef.current) {
         mapInstanceRef.current.invalidateSize();
+        mapInstanceRef.current.setView([DEFAULT_LAT, DEFAULT_LNG], mapInstanceRef.current.getZoom(), {
+          animate: false
+        });
       }
     };
 
@@ -343,6 +359,11 @@ export default function Dashboard({ onLogout }: DashboardProps) {
     if (mapInstanceRef.current) {
       setTimeout(() => {
         mapInstanceRef.current?.invalidateSize();
+        mapInstanceRef.current?.setView(
+          [DEFAULT_LAT, DEFAULT_LNG],
+          mapInstanceRef.current.getZoom(),
+          { animate: false }
+        );
       }, 260);
     }
   }, [sidebarState.isOpen, sidebarState.isMobile]);
@@ -374,8 +395,10 @@ export default function Dashboard({ onLogout }: DashboardProps) {
       mapInstanceRef.current.removeLayer(markerRef.current);
     }
 
-    markerRef.current = Leaflet.marker([DEFAULT_LAT, DEFAULT_LNG], { icon: customIcon })
-      .addTo(mapInstanceRef.current);
+    markerRef.current = Leaflet.marker([DEFAULT_LAT, DEFAULT_LNG], {
+      icon: customIcon,
+      interactive: true
+    }).addTo(mapInstanceRef.current);
 
     markerRef.current.on('click', () => {
       handleMapPinClick();
