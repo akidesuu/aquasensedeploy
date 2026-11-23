@@ -1,6 +1,15 @@
 import React, { useState } from 'react';
 import type { FormEvent } from 'react';
-import { ShieldAlert, Lock, User, Loader2, ArrowRight, Waves } from 'lucide-react';
+import {
+  ShieldAlert,
+  Lock,
+  User,
+  Loader2,
+  ArrowRight,
+  Waves,
+  Eye,
+  EyeOff
+} from 'lucide-react';
 
 interface LoginProps {
   onLoginSuccess: (username: string) => void;
@@ -13,6 +22,7 @@ const API_BASE_URL =
 export default function Login({ onLoginSuccess }: LoginProps) {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [focusedField, setFocusedField] = useState<'username' | 'password' | null>(null);
   const [isBtnHovered, setIsBtnHovered] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -72,12 +82,8 @@ export default function Login({ onLoginSuccess }: LoginProps) {
   };
 
   return (
-    <div className="aquasense-login-root">
+    <div style={styles.loginContainer}>
       <style>{`
-        @keyframes aq-float-slow {
-          0%, 100% { transform: translateY(0px); }
-          50% { transform: translateY(-6px); }
-        }
         @keyframes aq-shake {
           0%, 100% { transform: translateX(0); }
           20% { transform: translateX(-6px); }
@@ -111,6 +117,16 @@ export default function Login({ onLoginSuccess }: LoginProps) {
           background-color: #ffffff !important;
           border-color: #09090b !important;
           box-shadow: 0 0 0 4px rgba(9, 9, 11, 0.08), 0 8px 16px -6px rgba(0, 0, 0, 0.12) !important;
+        }
+        .aq-eye-btn {
+          transition: background-color 0.2s ease, color 0.2s ease, transform 0.18s ease;
+        }
+        .aq-eye-btn:hover:not(:disabled) {
+          background-color: #e4e4e7 !important;
+          color: #09090b !important;
+        }
+        .aq-eye-btn:active:not(:disabled) {
+          transform: scale(0.92);
         }
         .aq-submit-btn {
           position: relative;
@@ -268,7 +284,7 @@ export default function Login({ onLoginSuccess }: LoginProps) {
               />
               <input
                 id="aq-password"
-                type="password"
+                type={showPassword ? 'text' : 'password'}
                 required
                 disabled={isLoading}
                 value={password}
@@ -277,8 +293,19 @@ export default function Login({ onLoginSuccess }: LoginProps) {
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="••••••••••••"
                 className="aq-input-box"
-                style={styles.textInput}
+                style={styles.passwordInput}
               />
+              <button
+                type="button"
+                disabled={isLoading}
+                onClick={() => setShowPassword((prev) => !prev)}
+                aria-label={showPassword ? 'Hide password' : 'Show password'}
+                title={showPassword ? 'Hide password' : 'Show password'}
+                className="aq-eye-btn"
+                style={styles.eyeToggleBtn}
+              >
+                {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+              </button>
             </div>
           </div>
 
@@ -323,29 +350,32 @@ export default function Login({ onLoginSuccess }: LoginProps) {
 
 const styles: Record<string, React.CSSProperties> = {
   loginContainer: {
-    position: 'relative',
+    position: 'fixed',
+    inset: 0,
     display: 'flex',
     justifyContent: 'center',
     alignItems: 'center',
     minHeight: '100vh',
-    width: '100%',
+    width: '100vw',
     backgroundColor: '#f4f4f5',
     fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
     boxSizing: 'border-box',
     padding: '20px',
-    overflow: 'hidden'
+    overflowY: 'auto',
+    overflowX: 'hidden',
+    zIndex: 50
   },
   gridBackdrop: {
-    position: 'absolute',
+    position: 'fixed',
     inset: 0,
     backgroundImage:
-      'radial-gradient(circle at 50% 0%, rgba(255, 255, 255, 0.9), transparent 70%), linear-gradient(to right, rgba(24, 24, 27, 0.045) 1px, transparent 1px), linear-gradient(to bottom, rgba(24, 24, 27, 0.045) 1px, transparent 1px)',
+      'radial-gradient(circle at 50% 0%, rgba(255, 255, 255, 0.92), transparent 70%), linear-gradient(to right, rgba(24, 24, 27, 0.05) 1px, transparent 1px), linear-gradient(to bottom, rgba(24, 24, 27, 0.05) 1px, transparent 1px)',
     backgroundSize: '100% 100%, 28px 28px, 28px 28px',
     pointerEvents: 'none',
     zIndex: 0
   },
   topAccentBar: {
-    position: 'absolute',
+    position: 'fixed',
     top: 0,
     left: 0,
     right: 0,
@@ -356,9 +386,10 @@ const styles: Record<string, React.CSSProperties> = {
   loginCard: {
     position: 'relative',
     zIndex: 2,
+    margin: 'auto',
     width: '100%',
     maxWidth: '420px',
-    backgroundColor: 'rgba(255, 255, 255, 0.96)',
+    backgroundColor: 'rgba(255, 255, 255, 0.97)',
     backdropFilter: 'blur(12px)',
     padding: 'clamp(24px, 5vw, 36px)',
     borderRadius: '24px',
@@ -512,6 +543,32 @@ const styles: Record<string, React.CSSProperties> = {
     borderRadius: '12px',
     outline: 'none',
     boxSizing: 'border-box'
+  },
+  passwordInput: {
+    width: '100%',
+    padding: '12.5px 44px 12.5px 42px',
+    fontSize: '14px',
+    color: '#09090b',
+    backgroundColor: '#fafafa',
+    border: '1px solid #d4d4d8',
+    borderRadius: '12px',
+    outline: 'none',
+    boxSizing: 'border-box'
+  },
+  eyeToggleBtn: {
+    position: 'absolute',
+    right: '8px',
+    width: '30px',
+    height: '30px',
+    borderRadius: '8px',
+    border: 'none',
+    backgroundColor: 'transparent',
+    color: '#52525b',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    cursor: 'pointer',
+    zIndex: 2
   },
   submitBtn: {
     display: 'flex',
