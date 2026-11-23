@@ -88,6 +88,10 @@ const COLORS = ['#00c853', '#2196f3', '#ff9800', '#ff5c5c', '#8e44ad'];
 
 export default function Dashboard({ onLogout }: DashboardProps) {
   const [activeTab, setActiveTab] = useState('dashboard');
+  const [sidebarState, setSidebarState] = useState({
+    isOpen: typeof window !== 'undefined' ? window.innerWidth >= 768 : true,
+    isMobile: typeof window !== 'undefined' ? window.innerWidth < 768 : false
+  });
   const [prediction, setPrediction] = useState<PredictionData | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
@@ -336,6 +340,14 @@ export default function Dashboard({ onLogout }: DashboardProps) {
   }, [loading, activeTab, initMapInstance]);
 
   useEffect(() => {
+    if (mapInstanceRef.current) {
+      setTimeout(() => {
+        mapInstanceRef.current?.invalidateSize();
+      }, 260);
+    }
+  }, [sidebarState.isOpen, sidebarState.isMobile]);
+
+  useEffect(() => {
     if (loading || activeTab !== 'dashboard' || !mapInstanceRef.current || !window.L) return;
 
     const Leaflet = window.L;
@@ -448,11 +460,25 @@ export default function Dashboard({ onLogout }: DashboardProps) {
   const currentX = padLeft + ((livePoints.length - 1) * (svgWidth - padLeft - padRight)) / Math.max(livePoints.length - 1, 1);
   const currentY = isHardwareOnline ? getYCoordinate(livePoints[livePoints.length - 1]) : svgHeight - padBottom;
 
+  const leftOffset = !sidebarState.isMobile && sidebarState.isOpen ? '260px' : '0px';
+  const topPadding = sidebarState.isMobile ? '76px' : '24px';
+
   return (
     <div style={styles.appContainer}>
-      <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} onLogout={onLogout} />
+      <Sidebar
+        activeTab={activeTab}
+        setActiveTab={setActiveTab}
+        onLogout={onLogout}
+        onSidebarStateChange={setSidebarState}
+      />
 
-      <main style={styles.workspaceBody}>
+      <main
+        style={{
+          ...styles.workspaceBody,
+          marginLeft: leftOffset,
+          paddingTop: topPadding
+        }}
+      >
         {error && (
           <div style={styles.warningBanner}>
             <AlertTriangle size={16} style={{ marginRight: '10px', flexShrink: 0 }} />
@@ -848,13 +874,16 @@ const styles: Record<string, React.CSSProperties> = {
     minWidth: 0,
     minHeight: '100vh',
     overflowY: 'auto',
-    padding: ' clamp(16px, 3vw, 24px) ',
+    paddingLeft: 'clamp(16px, 2.5vw, 24px)',
+    paddingRight: 'clamp(16px, 2.5vw, 24px)',
+    paddingBottom: '24px',
     display: 'flex',
     flexDirection: 'column',
     gap: '24px',
     color: '#1e293b',
     fontFamily: 'Inter, sans-serif',
-    boxSizing: 'border-box'
+    boxSizing: 'border-box',
+    transition: 'margin-left 0.25s ease'
   },
   centerStage: {
     display: 'flex',
@@ -886,7 +915,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   kpiContainerRow: {
     display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
     gap: '16px',
     width: '100%',
     boxSizing: 'border-box'
@@ -900,12 +929,12 @@ const styles: Record<string, React.CSSProperties> = {
   },
   cardHeaderGlow: { display: 'flex', alignItems: 'center', marginBottom: '12px' },
   kpiTitle: { margin: 0, fontSize: '12px', color: '#64748b', fontWeight: '600' },
-  kpiValue: { margin: 0, fontSize: 'clamp(24px, 2.5vw, 30px)', fontWeight: '800' },
+  kpiValue: { margin: 0, fontSize: 'clamp(22px, 2.5vw, 30px)', fontWeight: '800' },
   unitText: { fontSize: '14px', color: '#64748b' },
   pulseDot: { width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#22c55e', marginRight: '8px' },
   splitGridDashboard: {
     display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
     gap: '24px',
     width: '100%',
     boxSizing: 'border-box'
@@ -913,7 +942,7 @@ const styles: Record<string, React.CSSProperties> = {
   panelBox: {
     backgroundColor: '#ffffff',
     borderRadius: '16px',
-    padding: '24px',
+    padding: '20px',
     boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05), 0 2px 4px -1px rgba(0,0,0,0.03)',
     minWidth: 0,
     boxSizing: 'border-box'
@@ -921,9 +950,10 @@ const styles: Record<string, React.CSSProperties> = {
   panelBoxFullWidth: {
     backgroundColor: '#ffffff',
     borderRadius: '16px',
-    padding: '24px',
+    padding: '20px',
     boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05), 0 2px 4px -1px rgba(0,0,0,0.03)',
     width: '100%',
+    minWidth: 0,
     boxSizing: 'border-box'
   },
   panelHeaderRow: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '8px' },
@@ -938,9 +968,9 @@ const styles: Record<string, React.CSSProperties> = {
   svgGraphLine: { width: '100%', height: '100%', position: 'absolute', top: 0, left: 0, zIndex: 2 },
   chartWatermarkGrid: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundImage: `linear-gradient(rgba(30,41,59,0.5) 1px, transparent 1px), linear-gradient(90deg, rgba(30,41,59,0.5) 1px, transparent 1px)`, backgroundSize: '16px 16px', zIndex: 1 },
   chartWatermarkGridModal: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundImage: `linear-gradient(rgba(30,41,59,0.7) 1px, transparent 1px), linear-gradient(90deg, rgba(30,41,59,0.7) 1px, transparent 1px)`, backgroundSize: '14px 14px', zIndex: 1 },
-  flexHeader: { display: 'flex', alignItems: 'center', gap: '8px' },
+  flexHeader: { display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' },
   flexGroup8: { display: 'flex', alignItems: 'center', gap: '8px' },
-  tableScrollContainer: { maxHeight: '280px', overflowX: 'auto', overflowY: 'auto', borderRadius: '8px', border: '1px solid #e2e8f0' },
+  tableScrollContainer: { maxHeight: '280px', overflowX: 'auto', overflowY: 'auto', borderRadius: '8px', border: '1px solid #e2e8f0', width: '100%' },
   telemetryTable: { width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '13px', minWidth: '640px' },
   tableTh: { padding: '10px 14px', backgroundColor: '#f1f5f9', color: '#475569', fontWeight: '700', borderBottom: '1px solid #cbd5e1', position: 'sticky', top: 0, zIndex: 5 },
   tableTr: { borderBottom: '1px solid #f1f5f9' },

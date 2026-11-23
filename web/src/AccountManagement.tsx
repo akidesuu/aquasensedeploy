@@ -794,16 +794,16 @@ const styles: Record<string, React.CSSProperties> = {
     width: '100%',
     minHeight: '100%',
     boxSizing: 'border-box',
-    padding: 'clamp(16px, 3vw, 28px)',
-    background: '#f8fafc',
+    padding: 0,
+    background: 'transparent',
     color: '#0f172a'
   },
   header: {
     display: 'flex',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
-    gap: 20,
-    marginBottom: 24,
+    gap: 16,
+    marginBottom: 20,
     flexWrap: 'wrap'
   },
   eyebrow: {
@@ -865,7 +865,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   statsGrid: {
     display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))',
     gap: 14,
     marginBottom: 18
   },
@@ -906,7 +906,9 @@ const styles: Record<string, React.CSSProperties> = {
     border: '1px solid #e2e8f0',
     borderRadius: 12,
     overflow: 'hidden',
-    boxShadow: '0 2px 8px rgba(15, 23, 42, 0.03)'
+    boxShadow: '0 2px 8px rgba(15, 23, 42, 0.03)',
+    width: '100%',
+    boxSizing: 'border-box'
   },
   toolbar: {
     display: 'flex',
@@ -922,12 +924,13 @@ const styles: Record<string, React.CSSProperties> = {
     display: 'flex',
     alignItems: 'center',
     gap: 9,
-    flex: '1 1 260px',
+    flex: '1 1 240px',
     height: 40,
     padding: '0 12px',
     border: '1px solid #dbe2ea',
     borderRadius: 8,
-    background: '#f8fafc'
+    background: '#f8fafc',
+    boxSizing: 'border-box'
   },
   searchInput: {
     width: '100%',

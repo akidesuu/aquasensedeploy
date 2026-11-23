@@ -14,12 +14,14 @@ interface SidebarProps {
   activeTab: string;
   setActiveTab: (tab: string) => void;
   onLogout: () => void;
+  onSidebarStateChange?: (state: { isOpen: boolean; isMobile: boolean }) => void;
 }
 
 export default function Sidebar({
   activeTab,
   setActiveTab,
-  onLogout
+  onLogout,
+  onSidebarStateChange
 }: SidebarProps) {
   const [adminName, setAdminName] = useState('Super Admin');
   const [isMobile, setIsMobile] = useState(
@@ -29,23 +31,24 @@ export default function Sidebar({
     typeof window !== 'undefined' ? window.innerWidth >= 768 : true
   );
 
-  // Track viewport width for mobile/desktop responsiveness
   useEffect(() => {
     const handleResize = () => {
       const mobile = window.innerWidth < 768;
+      const nextOpen = !mobile;
       setIsMobile(mobile);
-      if (!mobile) {
-        setIsOpen(true);
-      } else {
-        setIsOpen(false);
-      }
+      setIsOpen(nextOpen);
+      onSidebarStateChange?.({ isOpen: nextOpen, isMobile: mobile });
     };
 
+    onSidebarStateChange?.({ isOpen, isMobile });
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  // Extract logged-in user profile info from localStorage / JWT token on mount
+  useEffect(() => {
+    onSidebarStateChange?.({ isOpen, isMobile });
+  }, [isOpen, isMobile, onSidebarStateChange]);
+
   useEffect(() => {
     try {
       const token = localStorage.getItem('token') || localStorage.getItem('access_token');
@@ -90,7 +93,6 @@ export default function Sidebar({
 
   return (
     <>
-      {/* Mobile Top Bar with Hamburger Button */}
       {isMobile && (
         <header style={styles.mobileTopBar}>
           <div style={styles.mobileBrandGroup}>
@@ -108,7 +110,6 @@ export default function Sidebar({
         </header>
       )}
 
-      {/* Backdrop Overlay when Drawer is Open on Mobile */}
       {isMobile && isOpen && (
         <div
           style={styles.backdrop}
@@ -125,18 +126,16 @@ export default function Sidebar({
                 top: '56px',
                 height: 'calc(100vh - 56px)',
                 transform: isOpen ? 'translateX(0)' : 'translateX(-100%)',
-                transition: 'transform 0.28s ease'
+                transition: 'transform 0.25s ease'
               }
             : {
                 transform: 'translateX(0)'
               })
         }}
       >
-        {/* Glow Effects */}
         <div style={styles.topGlow}></div>
         <div style={styles.bottomGlow}></div>
 
-        {/* Header */}
         <div style={styles.sidebarHeader}>
           <div style={styles.logoVectorContainer}>
             <Waves size={28} color="#3b82f6" style={styles.vectorIconGlow} />
@@ -146,20 +145,8 @@ export default function Sidebar({
             <h1 style={styles.sidebarBrand}>AquaSense</h1>
             <p style={styles.sidebarSubtext}>Monitoring System</p>
           </div>
-
-          {isMobile && (
-            <button
-              type="button"
-              aria-label="Close sidebar"
-              onClick={() => setIsOpen(false)}
-              style={styles.closeDrawerBtn}
-            >
-              <X size={20} color="#cbd5e1" />
-            </button>
-          )}
         </div>
 
-        {/* Logged-in Super Admin Profile Card */}
         <div style={styles.adminProfileCard}>
           <div style={styles.adminAvatar}>
             {adminName.charAt(0).toUpperCase()}
@@ -175,7 +162,6 @@ export default function Sidebar({
           </div>
         </div>
 
-        {/* Navigation */}
         <nav style={styles.sidebarNav}>
           <SidebarButton
             icon={<LayoutDashboard size={18} />}
@@ -199,7 +185,6 @@ export default function Sidebar({
           />
         </nav>
 
-        {/* Logout */}
         <button
           style={styles.logoutBtn}
           onClick={handleLogoutClick}
@@ -277,7 +262,8 @@ const styles = {
     justifyContent: 'space-between',
     padding: '0 16px',
     zIndex: 1001,
-    boxShadow: '0 4px 16px rgba(0,0,0,0.25)'
+    boxShadow: '0 4px 16px rgba(0,0,0,0.25)',
+    boxSizing: 'border-box' as const
   },
   mobileBrandGroup: {
     display: 'flex',
@@ -296,17 +282,6 @@ const styles = {
     borderRadius: '10px',
     background: 'rgba(255,255,255,0.08)',
     border: '1px solid rgba(255,255,255,0.14)',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    cursor: 'pointer'
-  },
-  closeDrawerBtn: {
-    width: '34px',
-    height: '34px',
-    borderRadius: '8px',
-    background: 'rgba(255,255,255,0.06)',
-    border: '1px solid rgba(255,255,255,0.1)',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
@@ -468,7 +443,8 @@ const styles = {
     fontSize: '14px',
     fontWeight: '600',
     transition: 'all 0.25s ease',
-    outline: 'none'
+    outline: 'none',
+    boxSizing: 'border-box' as const
   },
   activeNavItem: {
     background: 'linear-gradient(135deg, rgba(250,204,21,0.22), rgba(250,204,21,0.10))',
@@ -500,6 +476,7 @@ const styles = {
     transition: 'all 0.25s ease',
     outline: 'none',
     position: 'relative' as const,
-    zIndex: 2
+    zIndex: 2,
+    boxSizing: 'border-box' as const
   }
 };
