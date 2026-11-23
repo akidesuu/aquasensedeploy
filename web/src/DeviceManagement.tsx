@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import type { FormEvent } from 'react';
 import {
   Plus,
@@ -15,7 +15,8 @@ import {
   CheckCircle2,
   AlertCircle,
   User,
-  Pencil
+  Pencil,
+  RefreshCw
 } from 'lucide-react';
 
 export interface AccountOption {
@@ -32,6 +33,7 @@ export interface FloaterNode {
   location: string;
   color: string;
   status: string;
+  lastTelemetryAt?: string | null;
   assignedUserId?: string | number;
   assignedUserName?: string;
   metrics?: {
@@ -39,6 +41,16 @@ export interface FloaterNode {
     temperature: number;
     turbidity: number;
   };
+}
+
+interface TelemetryRecord {
+  device_id?: string;
+  id?: string;
+  ph?: number;
+  temperature?: number;
+  turbidity?: number;
+  created_at?: string;
+  timestamp?: string;
 }
 
 interface DeviceManagementProps {
@@ -56,12 +68,119 @@ const BASE_URL =
   'https://aquasense-backend-osmi.onrender.com';
 const API_BASE_URL = BASE_URL.replace(/\/$/, '');
 
-const getAuthHeaders = () => {
+// Consider a node online if it has sent telemetry within this window
+const TELEMETRY_ONLINE_WINDOW_MS = 12 * 60 * 60 * 1000;
+
+const getAuthHeaders = (): Record<string, string> => {
   const token = localStorage.getItem('token') || localStorage.getItem('access_token');
   return {
     'Content-Type': 'application/json',
-    ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+    ...(token ? { Authorization: `Bearer ${token}` } : {})
   };
+};
+
+const normalizeDevicesList = (rawData: any): FloaterNode[] => {
+  const list = Array.isArray(rawData)
+    ? rawData
+    : Array.isArray(rawData?.devices)
+    ? rawData.devices
+    : Array.isArray(rawData?.data)
+    ? rawData.data
+    : [];
+
+  return list.map((item: any, idx: number) => {
+    const devId = String(item.device_id || item.id || `NODE_${idx + 1}`);
+    return {
+      id: String(item.id || item.device_id || idx + 1),
+      device_id: devId,
+      name: String(item.name || `Node ${devId}`),
+      location: String(item.location || 'Unassigned Field Station'),
+      color: item.color || '#ef4444',
+      status: 'Offline',
+      lastTelemetryAt: null,
+      assignedUserId:
+        item.assignedUserId ??
+        item.assigned_user_id ??
+        item.assigned_user ??
+        undefined,
+      assignedUserName:
+        item.assignedUserName ??
+        item.assigned_user_name ??
+        undefined,
+      metrics: undefined
+    };
+  });
+};
+
+const normalizeTelemetryList = (rawData: any): TelemetryRecord[] => {
+  if (Array.isArray(rawData)) return rawData;
+  if (Array.isArray(rawData?.telemetry)) return rawData.telemetry;
+  if (Array.isArray(rawData?.records)) return rawData.records;
+  if (Array.isArray(rawData?.data)) return rawData.data;
+  if (rawData && typeof rawData === 'object') return [rawData];
+  return [];
+};
+
+const applyTelemetryStatus = (
+  baseDevices: FloaterNode[],
+  telemetryRecords: TelemetryRecord[]
+): FloaterNode[] => {
+  const latestByDevice = new Map<
+    string,
+    { record: TelemetryRecord; timeMs: number; timeStr: string | null }
+  >();
+
+  for (const rec of telemetryRecords) {
+    const rawId = String(rec.device_id || rec.id || '').trim();
+    if (!rawId) continue;
+    const key = rawId.toLowerCase();
+    const timeStr = rec.created_at || rec.timestamp || null;
+    const parsedTime = timeStr ? new Date(timeStr).getTime() : NaN;
+    const effectiveTimeMs = !Number.isNaN(parsedTime) ? parsedTime : Date.now();
+
+    const existing = latestByDevice.get(key);
+    if (!existing || effectiveTimeMs >= existing.timeMs) {
+      latestByDevice.set(key, {
+        record: rec,
+        timeMs: effectiveTimeMs,
+        timeStr
+      });
+    }
+  }
+
+  const nowMs = Date.now();
+
+  return baseDevices.map((dev) => {
+    const match =
+      latestByDevice.get(String(dev.device_id).trim().toLowerCase()) ||
+      latestByDevice.get(String(dev.id).trim().toLowerCase());
+
+    const hasRecentTelemetry =
+      Boolean(match) && Math.abs(nowMs - match!.timeMs) <= TELEMETRY_ONLINE_WINDOW_MS;
+
+    if (hasRecentTelemetry && match) {
+      const rec = match.record;
+      return {
+        ...dev,
+        status: 'Online',
+        color: '#22c55e',
+        lastTelemetryAt: match.timeStr,
+        metrics: {
+          ph: Number(rec.ph ?? 0),
+          temperature: Number(rec.temperature ?? 0),
+          turbidity: Number(rec.turbidity ?? 0)
+        }
+      };
+    }
+
+    return {
+      ...dev,
+      status: 'Offline',
+      color: '#ef4444',
+      lastTelemetryAt: match?.timeStr ?? null,
+      metrics: undefined
+    };
+  });
 };
 
 export default function DeviceManagement({
@@ -75,6 +194,8 @@ export default function DeviceManagement({
   const [devices, setDevices] = useState<FloaterNode[]>(propDevices || []);
   const [accounts, setAccounts] = useState<AccountOption[]>(propAccounts || []);
   const [searchTerm, setSearchTerm] = useState('');
+  const [isLoadingDevices, setIsLoadingDevices] = useState(true);
+  const [fetchError, setFetchError] = useState<string | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingDeviceId, setEditingDeviceId] = useState<string | null>(null);
   const [newDeviceId, setNewDeviceId] = useState('');
@@ -84,71 +205,86 @@ export default function DeviceManagement({
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
-    if (propDevices) setDevices(propDevices);
-  }, [propDevices]);
-
-  useEffect(() => {
-    if (propAccounts) setAccounts(propAccounts);
+    if (propAccounts && propAccounts.length > 0) {
+      setAccounts(propAccounts);
+    }
   }, [propAccounts]);
 
   useEffect(() => {
     if (!propAccounts || propAccounts.length === 0) {
       fetch(`${API_BASE_URL}/api/accounts`, { headers: getAuthHeaders() })
-        .then((res) => res.json())
+        .then((res) => (res.ok ? res.json() : []))
         .then((data) => {
-          if (Array.isArray(data)) setAccounts(data);
+          const list = Array.isArray(data)
+            ? data
+            : Array.isArray(data?.accounts)
+            ? data.accounts
+            : Array.isArray(data?.data)
+            ? data.data
+            : [];
+          if (list.length > 0) setAccounts(list);
         })
         .catch((err) => console.error('Failed to fetch accounts:', err));
     }
   }, [propAccounts]);
 
-  const loadDevicesFromBackend = async () => {
+  const loadDevicesAndTelemetry = useCallback(async (showSpinner = false) => {
+    if (showSpinner) setIsLoadingDevices(true);
     try {
-      const response = await fetch(`${API_BASE_URL}/api/devices`, {
-        headers: getAuthHeaders()
-      });
-      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-      const data = await response.json();
-      
-      if (Array.isArray(data)) {
-        const mappedDevices: FloaterNode[] = data.map((item: any) => ({
-          id: String(item.id || item.device_id),
-          device_id: item.device_id || item.id,
-          name: item.name || 'Unnamed Node',
-          location: item.location || 'Unassigned Field Station',
-          color: item.status?.toLowerCase() === 'online' ? '#22c55e' : '#ef4444',
-          status: item.status || 'Offline',
-          assignedUserId: item.assignedUserId || item.assigned_user || undefined,
-          assignedUserName: item.assignedUserName || item.assigned_user_name || undefined,
-          metrics: item.metrics || undefined
-        }));
-        setDevices(mappedDevices);
+      const headers = getAuthHeaders();
+      const [devicesRes, telemetryRes] = await Promise.all([
+        fetch(`${API_BASE_URL}/api/devices`, { headers }),
+        fetch(`${API_BASE_URL}/telemetry?limit=100`, { headers }).catch(() =>
+          fetch(`${API_BASE_URL}/api/telemetry?limit=100`, { headers })
+        )
+      ]);
+
+      if (!devicesRes.ok) {
+        throw new Error(`Devices HTTP error! status: ${devicesRes.status}`);
       }
-    } catch (err) {
-      console.error('Failed to fetch devices from FastAPI:', err);
+
+      const rawDevices = await devicesRes.json();
+      const baseDevices = normalizeDevicesList(rawDevices);
+
+      let telemetryList: TelemetryRecord[] = [];
+      if (telemetryRes && telemetryRes.ok) {
+        const rawTelemetry = await telemetryRes.json();
+        telemetryList = normalizeTelemetryList(rawTelemetry);
+      }
+
+      const computedDevices = applyTelemetryStatus(baseDevices, telemetryList);
+      setDevices(computedDevices);
+      setFetchError(null);
+    } catch (err: any) {
+      console.error('Failed to fetch devices/telemetry from backend:', err);
+      setFetchError('Unable to load devices or telemetry stream from database.');
+    } finally {
+      setIsLoadingDevices(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
-    if (!propDevices) {
-      loadDevicesFromBackend();
-      const interval = setInterval(loadDevicesFromBackend, 10000);
-      return () => clearInterval(interval);
-    }
-  }, [propDevices]);
+    loadDevicesAndTelemetry(true);
+    const interval = setInterval(() => loadDevicesAndTelemetry(false), 5000);
+    return () => clearInterval(interval);
+  }, [loadDevicesAndTelemetry]);
 
   const farmerAccounts = accounts.filter(
     (acc) => acc.role && acc.role.toLowerCase() === 'farmer'
   );
 
-  const filteredDevices = devices.filter(
-    (dev) =>
-      dev.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      dev.device_id.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      dev.location.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (dev.assignedUserName &&
-        dev.assignedUserName.toLowerCase().includes(searchTerm.toLowerCase()))
-  );
+  const filteredDevices = devices.filter((dev) => {
+    const q = searchTerm.toLowerCase().trim();
+    if (!q) return true;
+    return (
+      dev.name.toLowerCase().includes(q) ||
+      dev.device_id.toLowerCase().includes(q) ||
+      dev.location.toLowerCase().includes(q) ||
+      dev.status.toLowerCase().includes(q) ||
+      (dev.assignedUserName && dev.assignedUserName.toLowerCase().includes(q)) ||
+      (dev.assignedUserId && String(dev.assignedUserId).toLowerCase().includes(q))
+    );
+  });
 
   const handleOpenAddModal = () => {
     setEditingDeviceId(null);
@@ -169,7 +305,9 @@ export default function DeviceManagement({
       const match = farmerAccounts.find((f) => f.name === device.assignedUserName);
       if (match) currentUserId = match.id;
     }
-    setSelectedUserId(currentUserId !== undefined && currentUserId !== null ? String(currentUserId) : '');
+    setSelectedUserId(
+      currentUserId !== undefined && currentUserId !== null ? String(currentUserId) : ''
+    );
     setIsModalOpen(true);
   };
 
@@ -207,13 +345,17 @@ export default function DeviceManagement({
     if (!deviceId || !deviceName || isSubmitting) return;
 
     setIsSubmitting(true);
-    const assignedUser = farmerAccounts.find((acc) => String(acc.id) === String(selectedUserId));
-    
+    const assignedUser = farmerAccounts.find(
+      (acc) => String(acc.id) === String(selectedUserId)
+    );
+
     const backendBody = JSON.stringify({
       id: deviceId,
       device_id: deviceId,
       name: deviceName,
       location: location,
+      assignedUserId: assignedUser ? assignedUser.id : null,
+      assignedUserName: assignedUser ? assignedUser.name : null,
       assigned_user_id: assignedUser ? assignedUser.id : null
     });
 
@@ -224,17 +366,17 @@ export default function DeviceManagement({
           headers: getAuthHeaders(),
           body: backendBody
         });
-        if (!response.ok) throw new Error(`FastAPI returned status ${response.status}`);
+        if (!response.ok) throw new Error(`Server returned status ${response.status}`);
       } else {
         const response = await fetch(`${API_BASE_URL}/api/devices`, {
           method: 'POST',
           headers: getAuthHeaders(),
           body: backendBody
         });
-        if (!response.ok) throw new Error(`FastAPI returned status ${response.status}`);
+        if (!response.ok) throw new Error(`Server returned status ${response.status}`);
       }
 
-      await loadDevicesFromBackend();
+      await loadDevicesAndTelemetry(false);
       setEditingDeviceId(null);
       setNewDeviceId('');
       setNewDeviceName('');
@@ -256,19 +398,45 @@ export default function DeviceManagement({
           <Search size={18} color="#64748b" style={{ marginLeft: '12px', flexShrink: 0 }} />
           <input
             type="text"
-            placeholder="Search nodes by ID, name, location, or assigned user..."
+            placeholder="Search nodes by ID, name, location, status, or assigned user..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             style={styles.searchInput}
           />
         </div>
-        <button type="button" onClick={handleOpenAddModal} style={styles.addButton}>
-          <Plus size={18} color="#ffffff" />
-          <span>Register New Node</span>
-        </button>
+
+        <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+          <button
+            type="button"
+            onClick={() => loadDevicesAndTelemetry(true)}
+            style={styles.refreshButton}
+            title="Sync devices and telemetry with database"
+          >
+            <RefreshCw size={16} color="#334155" />
+            <span>Refresh ({devices.length})</span>
+          </button>
+
+          <button type="button" onClick={handleOpenAddModal} style={styles.addButton}>
+            <Plus size={18} color="#ffffff" />
+            <span>Register New Node</span>
+          </button>
+        </div>
       </div>
 
-      {filteredDevices.length === 0 ? (
+      {fetchError && (
+        <div style={styles.errorBanner}>
+          <AlertCircle size={16} color="#b91c1c" />
+          <span>{fetchError}</span>
+        </div>
+      )}
+
+      {isLoadingDevices && devices.length === 0 ? (
+        <div style={styles.emptyContainer}>
+          <Cpu size={40} color="#0284c7" />
+          <h3 style={styles.emptyTitle}>Loading Nodes from Database...</h3>
+          <p style={styles.emptySub}>Checking registered devices and cloud telemetry stream.</p>
+        </div>
+      ) : filteredDevices.length === 0 ? (
         <div style={styles.emptyContainer}>
           <Cpu size={40} color="#94a3b8" />
           <h3 style={styles.emptyTitle}>NO ESP32 Nodes Found</h3>
@@ -277,12 +445,21 @@ export default function DeviceManagement({
       ) : (
         <div style={styles.gridContainer}>
           {filteredDevices.map((device) => {
-            const isOnline = device.status.toLowerCase() === 'online';
+            const isOnline = device.status === 'Online';
+            const assignedLabel =
+              device.assignedUserName ||
+              (device.assignedUserId ? String(device.assignedUserId) : 'Unassigned');
+
             return (
               <div key={device.id} style={styles.card}>
                 <div style={styles.cardHeader}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                    <div style={{ ...styles.statusIndicator, backgroundColor: isOnline ? '#22c55e' : '#ef4444' }} />
+                    <div
+                      style={{
+                        ...styles.statusIndicator,
+                        backgroundColor: isOnline ? '#22c55e' : '#ef4444'
+                      }}
+                    />
                     <div>
                       <h3 style={styles.deviceName}>{device.name}</h3>
                       <p style={styles.deviceId}>ID: {device.device_id}</p>
@@ -311,9 +488,7 @@ export default function DeviceManagement({
                   </div>
                   <div style={styles.userRow}>
                     <User size={14} color="#0284c7" />
-                    <span style={styles.userText}>
-                      User: {device.assignedUserName || 'Unassigned'}
-                    </span>
+                    <span style={styles.userText}>User: {assignedLabel}</span>
                   </div>
                 </div>
 
@@ -325,7 +500,7 @@ export default function DeviceManagement({
                         <span>pH</span>
                       </div>
                       <strong style={{ ...styles.metricVal, color: '#16a34a' }}>
-                        {device.metrics.ph.toFixed(1)}
+                        {Number(device.metrics.ph).toFixed(1)}
                       </strong>
                     </div>
 
@@ -335,7 +510,7 @@ export default function DeviceManagement({
                         <span>Temp</span>
                       </div>
                       <strong style={{ ...styles.metricVal, color: '#0284c7' }}>
-                        {device.metrics.temperature.toFixed(1)}°C
+                        {Number(device.metrics.temperature).toFixed(1)}°C
                       </strong>
                     </div>
 
@@ -345,21 +520,21 @@ export default function DeviceManagement({
                         <span>Turbidity</span>
                       </div>
                       <strong style={{ ...styles.metricVal, color: '#e11d48' }}>
-                        {device.metrics.turbidity.toFixed(1)}
+                        {Number(device.metrics.turbidity).toFixed(1)}
                       </strong>
                     </div>
                   </div>
                 ) : (
                   <div style={styles.offlineMetricsBox}>
                     <AlertCircle size={16} color="#ef4444" />
-                    <span>No telemetry data received (Offline)</span>
+                    <span>No recent telemetry sent to cloud (Offline)</span>
                   </div>
                 )}
 
                 <div style={styles.cardFooter}>
                   <div style={styles.wifiTag}>
                     <Wifi size={13} color={isOnline ? '#16a34a' : '#94a3b8'} />
-                    <span>{isOnline ? 'Connected' : 'Disconnected'}</span>
+                    <span>{isOnline ? 'Sending Data' : 'No Data Sent'}</span>
                   </div>
                   <div style={{ display: 'flex', gap: '8px' }}>
                     <button
@@ -481,7 +656,9 @@ const styles: Record<string, React.CSSProperties> = {
   toolbar: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', gap: '12px', flexWrap: 'wrap' },
   searchWrapper: { display: 'flex', alignItems: 'center', background: '#ffffff', border: '1px solid #cbd5e1', borderRadius: '8px', flex: '1 1 260px', height: '42px', boxSizing: 'border-box' },
   searchInput: { border: 'none', outline: 'none', padding: '0 12px', width: '100%', fontSize: '14px', background: 'transparent' },
+  refreshButton: { display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', background: '#ffffff', color: '#334155', border: '1px solid #cbd5e1', borderRadius: '8px', padding: '0 14px', height: '42px', fontWeight: 600, fontSize: '13px', cursor: 'pointer', flexShrink: 0 },
   addButton: { display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', background: '#0284c7', color: '#ffffff', border: 'none', borderRadius: '8px', padding: '0 16px', height: '42px', fontWeight: 600, cursor: 'pointer', flexShrink: 0 },
+  errorBanner: { display: 'flex', alignItems: 'center', gap: '8px', background: '#fef2f2', border: '1px solid #fca5a5', color: '#b91c1c', padding: '10px 14px', borderRadius: '8px', marginBottom: '16px', fontSize: '13px', fontWeight: 500 },
   emptyContainer: { textAlign: 'center', padding: '60px 20px', background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '12px' },
   emptyTitle: { marginTop: '12px', fontSize: '18px', fontWeight: 600, color: '#1e293b' },
   emptySub: { marginTop: '4px', fontSize: '14px', color: '#64748b' },
