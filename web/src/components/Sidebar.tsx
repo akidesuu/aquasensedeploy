@@ -229,7 +229,7 @@ function SidebarButton({
         if (!active) {
           e.currentTarget.style.background = 'rgba(99,102,241,0.18)';
           e.currentTarget.style.color = '#c4b5fd';
-          e.currentTarget.style.transform = 'translateX(6px)';
+          e.currentTarget.style.transform = 'translateX(4px)';
         }
       }}
       onMouseLeave={(e) => {
@@ -305,7 +305,7 @@ const styles = {
     flexDirection: 'column' as const,
     padding: '24px 18px',
     color: '#ffffff',
-    overflow: 'hidden',
+    overflow: 'hidden' as const,
     borderRight: '1px solid rgba(255,255,255,0.06)',
     boxShadow: '8px 0 30px rgba(0,0,0,0.25)',
     zIndex: 999,
@@ -426,7 +426,7 @@ const styles = {
     flex: 1,
     position: 'relative' as const,
     zIndex: 2,
-    overflowY: 'auto' as const
+    overflow: 'hidden' as const
   },
   navItem: {
     display: 'flex',
@@ -451,7 +451,7 @@ const styles = {
     border: '1px solid rgba(250,204,21,0.45)',
     color: '#fde047',
     boxShadow: '0 8px 25px rgba(250,204,21,0.18)',
-    transform: 'translateX(6px)'
+    transform: 'translateX(4px)'
   },
   iconWrapper: {
     display: 'flex',
