@@ -12,10 +12,10 @@ import {
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImagePicker from 'expo-image-picker';
+import { useRouter } from 'expo-router';
 import {
   User,
   Mail,
-  Shield,
   Bell,
   LogOut,
   Sliders,
@@ -24,23 +24,23 @@ import {
   MapPin,
   Volume2,
 } from 'lucide-react-native';
-import { useAuth } from '../_layout';
+import { useAuth } from './_layout';
 
 interface ProfileScreenProps {
-  onLogout?: () => void;
+  onLogout?: () => Promise<void> | void;
 }
 
 const STORAGE_KEY_PROFILE_IMAGE = '@aquasense_farmer_profile_image';
 
 export default function ProfileScreen({ onLogout }: ProfileScreenProps) {
-  const { user } = useAuth();
+  const router = useRouter();
+  const { user, logout } = useAuth();
   const [notificationsEnabled, setNotificationsEnabled] = useState<boolean>(true);
   const [criticalAlertsOnly, setCriticalAlertsOnly] = useState<boolean>(false);
   const [soundAlerts, setSoundAlerts] = useState<boolean>(true);
   const [profileImageUri, setProfileImageUri] = useState<string | null>(null);
   const [isUploading, setIsUploading] = useState<boolean>(false);
 
-  // Load saved profile image from AsyncStorage on mount
   useEffect(() => {
     const loadSavedImage = async () => {
       try {
@@ -55,12 +55,14 @@ export default function ProfileScreen({ onLogout }: ProfileScreenProps) {
     loadSavedImage();
   }, []);
 
-  // Handle picking and saving a profile image to AsyncStorage
   const handlePickImage = async () => {
     try {
       const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (!permissionResult.granted) {
-        Alert.alert('Permission Required', 'Permission to access photo library is required to customize your profile image.');
+        Alert.alert(
+          'Permission Required',
+          'Permission to access photo library is required to customize your profile image.'
+        );
         return;
       }
 
@@ -72,7 +74,7 @@ export default function ProfileScreen({ onLogout }: ProfileScreenProps) {
         quality: 0.7,
       });
 
-      if (!pickerResult.canceled && pickerResult.assets && pickerResult.assets.length > 0) {
+      if (!pickerResult.canceled && pickerResult.assets?.length > 0) {
         const selectedUri = pickerResult.assets[0].uri;
         setProfileImageUri(selectedUri);
         await AsyncStorage.setItem(STORAGE_KEY_PROFILE_IMAGE, selectedUri);
@@ -88,31 +90,43 @@ export default function ProfileScreen({ onLogout }: ProfileScreenProps) {
   const handleLogoutPress = () => {
     Alert.alert('Sign Out', 'Are you sure you want to log out of AquaSense?', [
       { text: 'Cancel', style: 'cancel' },
-      { 
-        text: 'Log Out', 
-        style: 'destructive', 
-        onPress: () => onLogout?.() 
+      {
+        text: 'Log Out',
+        style: 'destructive',
+        onPress: async () => {
+          if (onLogout) {
+            await onLogout();
+          } else {
+            await logout();
+          }
+          router.replace('/login');
+        },
       },
     ]);
   };
 
-  const typedUser = user as any;
-  const farmerName = typedUser?.name || 'John Rey Nillama';
-  const farmerEmail = typedUser?.email || 'johnrey@aquasense.com';
-  const farmerRole = typedUser?.role || 'Farmer';
-  const farmerLocation = typedUser?.location || 'BonBon';
-  const farmerId = typedUser?.id || typedUser?._id || 'USR-002';
+  const farmerName = user?.name || user?.username || 'Farmer Account';
+  const farmerEmail = user?.email || 'farmer@aquasense.local';
+  const farmerRole = user?.role || 'Farmer';
+  const farmerLocation = user?.location || 'Unassigned Field Station';
+  const farmerId = user?.id || 'FARMER';
 
   return (
-    <ScrollView contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
-      {/* FARMER PROFILE HEADER CARD */}
+    <ScrollView
+      contentContainerStyle={styles.container}
+      showsVerticalScrollIndicator={false}
+    >
       <View style={styles.userCard}>
-        <TouchableOpacity style={styles.avatarContainer} onPress={handlePickImage} activeOpacity={0.8}>
+        <TouchableOpacity
+          style={styles.avatarContainer}
+          onPress={handlePickImage}
+          activeOpacity={0.8}
+        >
           {profileImageUri ? (
             <Image source={{ uri: profileImageUri }} style={styles.avatarImage} />
           ) : (
             <View style={styles.avatarCircle}>
-              <User size={36} color="#0284c7" />
+              <User size={34} color="#0284c7" />
             </View>
           )}
           <View style={styles.cameraBadge}>
@@ -132,16 +146,17 @@ export default function ProfileScreen({ onLogout }: ProfileScreenProps) {
           </View>
           <View style={styles.infoRow}>
             <MapPin size={12} color="#64748b" />
-            <Text style={styles.userEmail}>Location: {farmerLocation} (ID: {farmerId})</Text>
+            <Text style={styles.userEmail}>
+              {farmerLocation} ({farmerId})
+            </Text>
           </View>
           <View style={styles.roleBadge}>
-            <CheckCircle2 size={10} color="#16a34a" />
+            <CheckCircle2 size={10} color="#0284c7" />
             <Text style={styles.roleBadgeText}>{farmerRole}</Text>
           </View>
         </View>
       </View>
 
-      {/* NOTIFICATIONS & PHONE ALERTS */}
       <Text style={styles.sectionTitle}>Phone Notifications & Alerts</Text>
       <View style={styles.settingsGroup}>
         <View style={styles.settingItem}>
@@ -151,7 +166,9 @@ export default function ProfileScreen({ onLogout }: ProfileScreenProps) {
             </View>
             <View style={{ flex: 1, paddingRight: 10 }}>
               <Text style={styles.settingTitle}>Push Notifications</Text>
-              <Text style={styles.settingSubtitle}>Receive real-time mobile push notifications for DO triggers</Text>
+              <Text style={styles.settingSubtitle}>
+                Receive mobile alerts for DO threshold breaches
+              </Text>
             </View>
           </View>
           <Switch
@@ -170,7 +187,9 @@ export default function ProfileScreen({ onLogout }: ProfileScreenProps) {
             </View>
             <View style={{ flex: 1, paddingRight: 10 }}>
               <Text style={styles.settingTitle}>Critical Thresholds Only</Text>
-              <Text style={styles.settingSubtitle}>Filter out minor warnings and notify only on critical DO limits</Text>
+              <Text style={styles.settingSubtitle}>
+                Highlight critical DO drops first
+              </Text>
             </View>
           </View>
           <Switch
@@ -184,12 +203,14 @@ export default function ProfileScreen({ onLogout }: ProfileScreenProps) {
 
         <View style={styles.settingItem}>
           <View style={styles.settingIconLabelGroup}>
-            <View style={[styles.iconBox, { backgroundColor: '#f0fdf4' }]}>
-              <Volume2 size={18} color="#16a34a" />
+            <View style={[styles.iconBox, { backgroundColor: '#e0f2fe' }]}>
+              <Volume2 size={18} color="#0284c7" />
             </View>
             <View style={{ flex: 1, paddingRight: 10 }}>
               <Text style={styles.settingTitle}>Alert Sound & Vibration</Text>
-              <Text style={styles.settingSubtitle}>Play sound alerts when a pond requires aeration</Text>
+              <Text style={styles.settingSubtitle}>
+                Notify when pond aeration needs attention
+              </Text>
             </View>
           </View>
           <Switch
@@ -200,7 +221,6 @@ export default function ProfileScreen({ onLogout }: ProfileScreenProps) {
         </View>
       </View>
 
-      {/* ACCOUNT ACTIONS */}
       <TouchableOpacity
         style={styles.logoutButton}
         onPress={handleLogoutPress}
@@ -210,7 +230,7 @@ export default function ProfileScreen({ onLogout }: ProfileScreenProps) {
         <Text style={styles.logoutButtonText}>Sign Out of System</Text>
       </TouchableOpacity>
 
-      <Text style={styles.versionSubtext}>AquaSense Mobile v1.1.0 • Build 2026</Text>
+      <Text style={styles.versionSubtext}>AquaSense Farmer Portal • v2.0</Text>
     </ScrollView>
   );
 }
@@ -224,11 +244,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 14,
-    elevation: 3,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
     borderWidth: 1,
     borderColor: '#e2e8f0',
   },
@@ -241,7 +256,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 2,
-    borderColor: '#bae6fd',
+    borderColor: '#7dd3fc',
   },
   avatarImage: {
     width: 64,
@@ -271,45 +286,77 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    backgroundColor: '#f0fdf4',
+    backgroundColor: '#e0f2fe',
     paddingHorizontal: 8,
     paddingVertical: 3,
     borderRadius: 12,
     alignSelf: 'flex-start',
     marginTop: 4,
   },
-  roleBadgeText: { fontSize: 10, fontWeight: '700', color: '#16a34a' },
-  sectionTitle: { fontSize: 14, fontWeight: '700', color: '#0f172a', marginTop: 4, marginBottom: -4 },
+  roleBadgeText: { fontSize: 10, fontWeight: '700', color: '#0284c7' },
+  sectionTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#0f172a',
+    marginTop: 4,
+    marginBottom: -4,
+  },
   settingsGroup: {
     backgroundColor: '#ffffff',
     borderRadius: 16,
     padding: 14,
-    elevation: 2,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.03,
-    shadowRadius: 3,
     borderWidth: 1,
     borderColor: '#e2e8f0',
   },
-  settingItem: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 8 },
-  settingIconLabelGroup: { flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 },
-  iconBox: { width: 36, height: 36, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
+  settingItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 8,
+  },
+  settingIconLabelGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    flex: 1,
+  },
+  iconBox: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   settingTitle: { fontSize: 13, fontWeight: '700', color: '#0f172a' },
-  settingSubtitle: { fontSize: 11, color: '#64748b', fontWeight: '500', marginTop: 1 },
-  settingDivider: { height: 1, backgroundColor: '#f1f5f9', marginVertical: 6 },
+  settingSubtitle: {
+    fontSize: 11,
+    color: '#64748b',
+    fontWeight: '500',
+    marginTop: 1,
+  },
+  settingDivider: {
+    height: 1,
+    backgroundColor: '#f1f5f9',
+    marginVertical: 6,
+  },
   logoutButton: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
-    backgroundColor: '#fee2e2',
+    backgroundColor: '#fef2f2',
     borderWidth: 1,
-    borderColor: '#fca5a5',
+    borderColor: '#fecaca',
     borderRadius: 16,
     paddingVertical: 14,
     marginTop: 8,
   },
   logoutButtonText: { color: '#ef4444', fontWeight: '800', fontSize: 14 },
-  versionSubtext: { textAlign: 'center', fontSize: 11, color: '#94a3b8', fontWeight: '500', marginTop: 4 },
+  versionSubtext: {
+    textAlign: 'center',
+    fontSize: 11,
+    color: '#94a3b8',
+    fontWeight: '500',
+    marginTop: 4,
+  },
 });

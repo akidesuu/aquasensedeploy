@@ -10,8 +10,8 @@ import {
   ActivityIndicator,
   RefreshControl,
   Platform,
+  Animated,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import {
   Bell,
@@ -22,9 +22,9 @@ import {
   ChevronRight,
   Activity,
   Wifi,
-  WifiOff
+  WifiOff,
 } from 'lucide-react-native';
-import { useAuth } from '../_layout';
+import { useAuth, MobileUser } from './_layout';
 import AlertScreen from './AlertScreen';
 import ProfileScreen from './Profile';
 import ComponentsScreen, { FloaterDevice } from './ComponentsScreen';
@@ -32,179 +32,309 @@ import ComponentsScreen, { FloaterDevice } from './ComponentsScreen';
 const { width } = Dimensions.get('window');
 const API_BASE_URL = 'https://aquasense-backend-osmi.onrender.com';
 
+type ScreenTab = 'home' | 'components' | 'alert' | 'profile';
+
+const isOwnedByFarmer = (dev: any, farmer: MobileUser | null): boolean => {
+  if (!farmer) return false;
+
+  const ownerId = String(
+    dev.assignedUserId ?? dev.assigned_user_id ?? dev.assigned_user ?? ''
+  )
+    .trim()
+    .toLowerCase();
+  const ownerName = String(
+    dev.assignedUserName ?? dev.assigned_user_name ?? ''
+  )
+    .trim()
+    .toLowerCase();
+
+  const candidateIds = [farmer.id, farmer.email, farmer.username, farmer.name]
+    .filter(Boolean)
+    .map((v) => String(v).trim().toLowerCase());
+
+  const candidateNames = [farmer.name, farmer.username]
+    .filter(Boolean)
+    .map((v) => String(v).trim().toLowerCase());
+
+  const idMatches = Boolean(ownerId) && candidateIds.includes(ownerId);
+  const nameMatches = Boolean(ownerName) && candidateNames.includes(ownerName);
+
+  return idMatches || nameMatches;
+};
+
 export default function MobileDashboard() {
   const router = useRouter();
-  const { logout, user } = useAuth();
-  const [currentScreen, setCurrentScreen] = useState<'home' | 'components' | 'alert' | 'profile'>('home');
+  const { logout, user, token, isLoadingAuth } = useAuth();
+
+  const [currentScreen, setCurrentScreen] = useState<ScreenTab>('home');
   const [selectedDevice, setSelectedDevice] = useState<FloaterDevice | null>(null);
-  const [sparklineData, setSparklineData] = useState<number[]>([6.2, 6.5, 6.1, 6.4, 6.3, 6.0, 6.4]);
+  const [sparklineData, setSparklineData] = useState<number[]>([
+    6.2, 6.5, 6.1, 6.4, 6.3, 6.0, 6.4,
+  ]);
   const [devices, setDevices] = useState<FloaterDevice[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
   const [isConnected, setIsConnected] = useState<boolean>(true);
+
+  const stageOpacity = useRef(new Animated.Value(1)).current;
+  const stageTranslateY = useRef(new Animated.Value(0)).current;
 
   const devicesRef = useRef<FloaterDevice[]>([]);
   useEffect(() => {
     devicesRef.current = devices;
   }, [devices]);
 
-  const fetchDevices = useCallback(async () => {
-    try {
-      const response = await fetch(`${API_BASE_URL}/api/devices`);
-      if (response.ok) {
-        const rawDevices = await response.json();
-        if (Array.isArray(rawDevices)) {
-          const formattedDevices: FloaterDevice[] = rawDevices.map((dev: any) => ({
-            id: dev.device_id || dev.id || 'ESP32_POND_01',
-            name: dev.name || dev.device_id || 'Node ESP32_POND_01',
-            location: dev.location || 'BonBon',
-            color: dev.color || '#22c55e',
-            metrics: {
-              ph: dev.metrics?.ph ?? 7.33,
-              temperature: dev.metrics?.temperature ?? 24.1,
-              turbidity: dev.metrics?.turbidity ?? 12.0,
-              battery: dev.metrics?.battery ?? 85,
-              predictedDo: dev.metrics?.predictedDo ?? 5.25
-            }
-          }));
+  useEffect(() => {
+    if (!isLoadingAuth && !user) {
+      router.replace('/login');
+    }
+  }, [isLoadingAuth, user, router]);
 
-          setDevices(formattedDevices);
-        } else {
-          setDevices([]);
-        }
-        setIsConnected(true);
-      } else {
-        setDevices([
-          {
-            id: 'ESP32_POND_01',
-            name: 'Node ESP32_POND_01',
-            location: 'BonBon',
-            color: '#22c55e',
-            metrics: { ph: 7.33, temperature: 24.1, turbidity: 0, battery: 85, predictedDo: 5.25 }
-          }
-        ]);
+  const animateToScreen = useCallback(
+    (nextScreen: ScreenTab) => {
+      if (nextScreen === currentScreen) return;
+      Animated.parallel([
+        Animated.timing(stageOpacity, {
+          toValue: 0,
+          duration: 120,
+          useNativeDriver: true,
+        }),
+        Animated.timing(stageTranslateY, {
+          toValue: 8,
+          duration: 120,
+          useNativeDriver: true,
+        }),
+      ]).start(() => {
+        setCurrentScreen(nextScreen);
+        stageTranslateY.setValue(-8);
+        Animated.parallel([
+          Animated.timing(stageOpacity, {
+            toValue: 1,
+            duration: 210,
+            useNativeDriver: true,
+          }),
+          Animated.timing(stageTranslateY, {
+            toValue: 0,
+            duration: 210,
+            useNativeDriver: true,
+          }),
+        ]).start();
+      });
+    },
+    [currentScreen, stageOpacity, stageTranslateY]
+  );
+
+  const fetchFarmerDevices = useCallback(async () => {
+    if (!user) return;
+    try {
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      };
+      const response = await fetch(`${API_BASE_URL}/api/devices`, { headers });
+      if (!response.ok) {
+        setIsConnected(false);
+        setDevices([]);
+        return;
       }
+
+      const rawDevices = await response.json();
+      const list = Array.isArray(rawDevices) ? rawDevices : [];
+      const owned = list.filter((dev) => isOwnedByFarmer(dev, user));
+
+      const formattedDevices: FloaterDevice[] = owned.map((dev: any, idx: number) => {
+        const devId = String(dev.device_id || dev.id || `NODE_${idx + 1}`);
+        const statusStr: 'Online' | 'Offline' =
+          String(dev.status || 'Offline').toLowerCase() === 'online'
+            ? 'Online'
+            : 'Offline';
+
+        return {
+          id: String(dev.id || devId),
+          device_id: devId,
+          name: String(dev.name || `Node ${devId}`),
+          location: String(dev.location || 'Unassigned Field Station'),
+          color: statusStr === 'Online' ? '#0284c7' : '#ef4444',
+          status: statusStr,
+          assignedUserId: dev.assignedUserId ?? dev.assigned_user_id ?? null,
+          assignedUserName: dev.assignedUserName ?? dev.assigned_user_name ?? null,
+          metrics: {
+            ph: Number(dev.metrics?.ph ?? 7.33),
+            temperature: Number(dev.metrics?.temperature ?? 24.1),
+            turbidity: Number(dev.metrics?.turbidity ?? 0),
+            battery: Number(dev.metrics?.battery ?? 85),
+            predictedDo: Number(
+              dev.metrics?.predictedDo ?? dev.metrics?.predicted_do ?? 5.25
+            ),
+          },
+        };
+      });
+
+      setDevices(formattedDevices);
+      setIsConnected(true);
     } catch (err) {
-      console.warn("Could not reach backend devices endpoint, using offline fallback:", err);
+      console.warn('Failed to fetch farmer devices:', err);
       setIsConnected(false);
-      setDevices([
-        {
-          id: 'ESP32_POND_01',
-          name: 'Node ESP32_POND_01',
-          location: 'BonBon',
-          color: '#22c55e',
-          metrics: { ph: 7.33, temperature: 24.1, turbidity: 0, battery: 85, predictedDo: 5.25 }
-        }
-      ]);
     } finally {
       setIsLoading(false);
       setIsRefreshing(false);
     }
-  }, []);
+  }, [user, token]);
 
-  const fetchBackendData = useCallback(async () => {
+  const fetchOnlineTelemetry = useCallback(async () => {
     const currentDevices = devicesRef.current;
-    if (currentDevices.length === 0) return;
+    const onlineDevices = currentDevices.filter(
+      (d) => String(d.status || '').toLowerCase() === 'online'
+    );
+    if (onlineDevices.length === 0) return;
 
     try {
-      let currentPrediction = 5.25;
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      };
+
+      let latestPred = 5.25;
       try {
-        const predRes = await fetch(`${API_BASE_URL}/predict`);
+        const predRes = await fetch(`${API_BASE_URL}/predict`, { headers });
         if (predRes.ok) {
           const predData = await predRes.json();
           if (predData.predicted_do !== undefined) {
-            currentPrediction = typeof predData.predicted_do === 'number'
-              ? predData.predicted_do
-              : parseFloat(predData.predicted_do);
-            setSparklineData((prev) => [...prev.slice(1), currentPrediction]);
+            latestPred = parseFloat(String(predData.predicted_do)) || latestPred;
+            setSparklineData((prev) => [...prev.slice(1), latestPred]);
           }
         }
-      } catch (err) {
-        setSparklineData((prev) => {
-          const next = [...prev.slice(1)];
-          const variance = (Math.random() * 0.4 - 0.2);
-          const updatedVal = Math.max(2.0, Math.min(8.5, parseFloat((prev[prev.length - 1] + variance).toFixed(2))));
-          return [...next, updatedVal];
-        });
+      } catch {
+        // Keep previous sparkline if prediction endpoint is busy
       }
 
-      const updatedDevices = await Promise.all(
-        currentDevices.map(async (device) => {
+      const updatesById = new Map<string, Partial<FloaterDevice['metrics']>>();
+      await Promise.all(
+        onlineDevices.map(async (device) => {
+          const queryId = encodeURIComponent(device.device_id || String(device.id));
           try {
-            const telRes = await fetch(`${API_BASE_URL}/telemetry/latest?device_id=${device.id}`);
+            const telRes = await fetch(
+              `${API_BASE_URL}/telemetry/latest?device_id=${queryId}`,
+              { headers }
+            );
             if (telRes.ok) {
               const telData = await telRes.json();
-              setIsConnected(true);
-              return {
-                ...device,
-                metrics: {
-                  ...device.metrics,
-                  ph: telData.ph ?? device.metrics.ph,
-                  temperature: telData.temperature ?? device.metrics.temperature,
-                  turbidity: telData.turbidity ?? device.metrics.turbidity,
-                  predictedDo: telData.predicted_do ?? currentPrediction
-                }
-              };
+              updatesById.set(String(device.id), {
+                ph: Number(telData.ph ?? device.metrics.ph),
+                temperature: Number(telData.temperature ?? device.metrics.temperature),
+                turbidity: Number(telData.turbidity ?? device.metrics.turbidity),
+                predictedDo: Number(
+                  telData.predicted_do ?? telData.predictedDO ?? latestPred
+                ),
+              });
             }
-          } catch (e) {}
-          return device;
+          } catch {
+            // Keep existing metrics for this device
+          }
         })
       );
-      setDevices(updatedDevices);
-    } catch (globalErr) {
-      setIsConnected(false);
+
+      if (updatesById.size > 0) {
+        setDevices((prev) =>
+          prev.map((dev) => {
+            const patch = updatesById.get(String(dev.id));
+            if (!patch) return dev;
+            return {
+              ...dev,
+              metrics: {
+                ...dev.metrics,
+                ...patch,
+              },
+            };
+          })
+        );
+      }
+    } catch {
+      // Ignore transient poll errors
     }
-  }, []);
+  }, [token]);
 
   useEffect(() => {
-    fetchDevices();
-  }, [fetchDevices]);
+    if (user) {
+      setIsLoading(true);
+      fetchFarmerDevices();
+    }
+  }, [user, fetchFarmerDevices]);
 
   useEffect(() => {
     if (devices.length > 0) {
-      fetchBackendData();
-      const dataTicker = setInterval(fetchBackendData, 4000);
-      return () => clearInterval(dataTicker);
+      fetchOnlineTelemetry();
+      const timer = setInterval(fetchOnlineTelemetry, 4000);
+      return () => clearInterval(timer);
     }
-  }, [devices.length, fetchBackendData]);
+  }, [devices.length, fetchOnlineTelemetry]);
+
+  useEffect(() => {
+    if (selectedDevice) {
+      const refreshed = devices.find((d) => String(d.id) === String(selectedDevice.id));
+      if (refreshed) {
+        setSelectedDevice(refreshed);
+      }
+    }
+  }, [devices, selectedDevice]);
 
   const handleRefresh = () => {
     setIsRefreshing(true);
-    fetchDevices();
+    fetchFarmerDevices();
   };
 
   const handleDeviceClick = (device: FloaterDevice) => {
     setSelectedDevice(device);
-    setCurrentScreen('components');
+    animateToScreen('components');
   };
 
   const handleSelectDeviceFromAlert = (deviceId: string | number) => {
-    const target = devices.find((d) => d.id === deviceId);
+    const target = devices.find(
+      (d) => String(d.id) === String(deviceId) || String(d.device_id) === String(deviceId)
+    );
     if (target) {
       setSelectedDevice(target);
-      setCurrentScreen('components');
+      animateToScreen('components');
     }
   };
 
-  const typedUser = user as any;
-  const farmerName = typedUser?.name || 'John Rey Nillama';
+  if (isLoadingAuth || !user) {
+    return (
+      <View style={styles.authGateLoader}>
+        <ActivityIndicator size="large" color="#0284c7" />
+        <Text style={styles.loaderText}>Verifying farmer session...</Text>
+      </View>
+    );
+  }
+
+  const farmerName = user?.name || user?.username || 'Farmer';
+  const onlineCount = devices.filter(
+    (d) => String(d.status || '').toLowerCase() === 'online'
+  ).length;
 
   return (
     <View style={styles.screenRootContainer}>
       <StatusBar barStyle="light-content" />
-      
-      {/* TOP EDGE SAFE AREA BACKGROUND FILLER */}
       <View style={styles.topStatusBarFiller} />
 
-      {/* CONSISTENT GLOBAL BRANDING HEADER */}
       <View style={styles.brandingHeader}>
         <View style={styles.headerLeftBlock}>
           <View>
             <View style={styles.brandTitleRow}>
               <Text style={styles.brandTitleText}>AquaSense</Text>
               <View style={[styles.onlineBadge, !isConnected && styles.offlineBadge]}>
-                <View style={[styles.onlinePulseDot, !isConnected && styles.offlinePulseDot]} />
-                <Text style={[styles.onlineBadgeText, !isConnected && styles.offlineBadgeText]}>
+                <View
+                  style={[
+                    styles.onlinePulseDot,
+                    !isConnected && styles.offlinePulseDot,
+                  ]}
+                />
+                <Text
+                  style={[
+                    styles.onlineBadgeText,
+                    !isConnected && styles.offlineBadgeText,
+                  ]}
+                >
                   {isConnected ? 'ONLINE' : 'OFFLINE'}
                 </Text>
               </View>
@@ -217,11 +347,10 @@ export default function MobileDashboard() {
           </View>
         </View>
 
-        {/* Action Tray (Notification Bell Only) */}
         <View style={styles.headerActionTray}>
           <TouchableOpacity
             style={styles.actionIconBtn}
-            onPress={() => setCurrentScreen('alert')}
+            onPress={() => animateToScreen('alert')}
             activeOpacity={0.7}
             hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
           >
@@ -231,10 +360,20 @@ export default function MobileDashboard() {
         </View>
       </View>
 
-      {/* CORE DISPLAY STAGE */}
-      <View style={styles.mainStageWrapper}>
+      <Animated.View
+        style={[
+          styles.mainStageWrapper,
+          {
+            opacity: stageOpacity,
+            transform: [{ translateY: stageTranslateY }],
+          },
+        ]}
+      >
         {currentScreen === 'alert' ? (
-          <AlertScreen devices={devices} onSelectAlertDevice={handleSelectDeviceFromAlert} />
+          <AlertScreen
+            devices={devices}
+            onSelectAlertDevice={handleSelectDeviceFromAlert}
+          />
         ) : currentScreen === 'profile' ? (
           <ProfileScreen onLogout={logout} />
         ) : (
@@ -242,15 +381,25 @@ export default function MobileDashboard() {
             contentContainerStyle={styles.mainContentScrollBody}
             showsVerticalScrollIndicator={false}
             refreshControl={
-              <RefreshControl refreshing={isRefreshing} onRefresh={handleRefresh} tintColor="#0284c7" />
+              <RefreshControl
+                refreshing={isRefreshing}
+                onRefresh={handleRefresh}
+                tintColor="#0284c7"
+              />
             }
           >
             {currentScreen === 'home' && (
               <View>
                 <View style={styles.summaryBar}>
                   <View style={styles.summaryItem}>
-                    {isConnected ? <Wifi size={14} color="#16a34a" /> : <WifiOff size={14} color="#ef4444" />}
-                    <Text style={styles.summaryItemText}>{devices.length} Active Nodes</Text>
+                    {isConnected ? (
+                      <Wifi size={14} color="#0284c7" />
+                    ) : (
+                      <WifiOff size={14} color="#ef4444" />
+                    )}
+                    <Text style={styles.summaryItemText}>
+                      {devices.length} Owned ({onlineCount} Online)
+                    </Text>
                   </View>
                   <View style={styles.summaryDivider} />
                   <View style={styles.summaryItem}>
@@ -259,51 +408,108 @@ export default function MobileDashboard() {
                   </View>
                 </View>
 
-                <Text style={styles.sectionHeaderTitle}>Choose Floater Device</Text>
+                <Text style={styles.sectionHeaderTitle}>Your Floater Devices</Text>
 
                 {isLoading ? (
                   <View style={styles.loaderContainer}>
                     <ActivityIndicator size="large" color="#0284c7" />
-                    <Text style={styles.loaderText}>Connecting to AquaSense database...</Text>
+                    <Text style={styles.loaderText}>
+                      Loading your assigned nodes...
+                    </Text>
                   </View>
                 ) : devices.length === 0 ? (
                   <View style={styles.emptyContainer}>
-                    <AlertCircle size={40} color="#f59e0b" />
-                    <Text style={styles.emptyTitle}>No ESP32 Device Found</Text>
-                    <Text style={styles.emptySub}>Contact the administrator</Text>
+                    <AlertCircle size={40} color="#0284c7" />
+                    <Text style={styles.emptyTitle}>No Assigned ESP32 Devices</Text>
+                    <Text style={styles.emptySub}>
+                      No nodes are currently assigned to {farmerName}. Contact your administrator.
+                    </Text>
                   </View>
                 ) : (
                   <View style={styles.deviceSelectionGrid}>
                     {devices.map((device) => {
-                      const isWarning = device.metrics.predictedDo <= 4.0;
+                      const isDeviceOnline =
+                        String(device.status || '').toLowerCase() === 'online';
+                      const isWarning =
+                        isDeviceOnline && device.metrics.predictedDo <= 4.0;
+
                       return (
                         <TouchableOpacity
                           key={device.id}
                           onPress={() => handleDeviceClick(device)}
                           style={styles.interactiveDeviceCard}
-                          activeOpacity={0.75}
+                          activeOpacity={0.78}
                         >
-                          <View style={[styles.cardAccentGlowBar, { backgroundColor: device.color }]} />
+                          <View
+                            style={[
+                              styles.cardAccentGlowBar,
+                              {
+                                backgroundColor: isDeviceOnline
+                                  ? '#0284c7'
+                                  : '#ef4444',
+                              },
+                            ]}
+                          />
                           <View style={styles.deviceCardHeader}>
-                            <Text style={styles.deviceCardIndexLabel}>{device.name}</Text>
-                            <View style={[styles.statusBadge, isWarning ? styles.warningBadge : styles.normalBadge]}>
-                              <Text style={[styles.statusBadgeText, isWarning ? styles.warningBadgeText : styles.normalBadgeText]}>
-                                {isWarning ? 'ALERT' : 'OK'}
+                            <Text style={styles.deviceCardIndexLabel} numberOfLines={1}>
+                              {device.name}
+                            </Text>
+                            <View
+                              style={[
+                                styles.statusBadge,
+                                !isDeviceOnline
+                                  ? styles.offlineNodeBadge
+                                  : isWarning
+                                  ? styles.warningBadge
+                                  : styles.onlineNodeBadge,
+                              ]}
+                            >
+                              <Text
+                                style={[
+                                  styles.statusBadgeText,
+                                  !isDeviceOnline
+                                    ? styles.offlineNodeBadgeText
+                                    : isWarning
+                                    ? styles.warningBadgeText
+                                    : styles.onlineNodeBadgeText,
+                                ]}
+                              >
+                                {!isDeviceOnline
+                                  ? 'OFFLINE'
+                                  : isWarning
+                                  ? 'ALERT'
+                                  : 'ONLINE'}
                               </Text>
                             </View>
                           </View>
-                          <Text style={styles.deviceCardLocationSubtext}>{device.location}</Text>
-                          
+                          <Text style={styles.deviceCardLocationSubtext} numberOfLines={1}>
+                            {device.location}
+                          </Text>
+
                           <View style={styles.cardMetricsPreview}>
-                            <View>
-                              <Text style={styles.metricLabel}>Pred. DO</Text>
-                              <Text style={[styles.metricValue, { color: isWarning ? '#ef4444' : '#0f172a' }]}>
-                                {typeof device.metrics.predictedDo === 'number'
-                                  ? device.metrics.predictedDo.toFixed(1)
-                                  : device.metrics.predictedDo}{' '}
-                                <Text style={styles.unitText}>mg/L</Text>
-                              </Text>
-                            </View>
+                            {isDeviceOnline ? (
+                              <View>
+                                <Text style={styles.metricLabel}>Pred. DO</Text>
+                                <Text
+                                  style={[
+                                    styles.metricValue,
+                                    { color: isWarning ? '#ef4444' : '#0f172a' },
+                                  ]}
+                                >
+                                  {typeof device.metrics.predictedDo === 'number'
+                                    ? device.metrics.predictedDo.toFixed(1)
+                                    : device.metrics.predictedDo}{' '}
+                                  <Text style={styles.unitText}>mg/L</Text>
+                                </Text>
+                              </View>
+                            ) : (
+                              <View>
+                                <Text style={styles.metricLabel}>Status</Text>
+                                <Text style={styles.offlineCardNote}>
+                                  No telemetry (Tap to view)
+                                </Text>
+                              </View>
+                            )}
                             <ChevronRight size={18} color="#cbd5e1" />
                           </View>
                         </TouchableOpacity>
@@ -322,52 +528,119 @@ export default function MobileDashboard() {
             )}
           </ScrollView>
         )}
-      </View>
+      </Animated.View>
 
-      {/* FOOTER TAB BAR DOCK */}
       <View style={styles.footerTabBarDock}>
         <TouchableOpacity
           style={styles.tabBarItemButton}
-          onPress={() => { setCurrentScreen('home'); setSelectedDevice(null); }}
+          onPress={() => {
+            setSelectedDevice(null);
+            animateToScreen('home');
+          }}
           activeOpacity={0.7}
         >
-          <View style={[styles.tabIconWrapper, currentScreen === 'home' && styles.activeTabIconWrapper]}>
-            <Home size={18} color={currentScreen === 'home' ? '#0284c7' : '#64748b'} />
+          <View
+            style={[
+              styles.tabIconWrapper,
+              currentScreen === 'home' && styles.activeTabIconWrapper,
+            ]}
+          >
+            <Home
+              size={18}
+              color={currentScreen === 'home' ? '#0284c7' : '#64748b'}
+            />
           </View>
-          <Text style={[styles.tabBarItemButtonTextLabel, { color: currentScreen === 'home' ? '#0284c7' : '#64748b' }]}>Home</Text>
+          <Text
+            style={[
+              styles.tabBarItemButtonTextLabel,
+              { color: currentScreen === 'home' ? '#0284c7' : '#64748b' },
+            ]}
+          >
+            Home
+          </Text>
         </TouchableOpacity>
 
         <TouchableOpacity
           style={styles.tabBarItemButton}
-          onPress={() => { if (!selectedDevice && devices.length > 0) setSelectedDevice(devices[0]); setCurrentScreen('components'); }}
+          onPress={() => {
+            if (!selectedDevice && devices.length > 0) {
+              setSelectedDevice(devices[0]);
+            }
+            animateToScreen('components');
+          }}
           activeOpacity={0.7}
         >
-          <View style={[styles.tabIconWrapper, currentScreen === 'components' && styles.activeTabIconWrapper]}>
-            <Layers size={18} color={currentScreen === 'components' ? '#0284c7' : '#64748b'} />
+          <View
+            style={[
+              styles.tabIconWrapper,
+              currentScreen === 'components' && styles.activeTabIconWrapper,
+            ]}
+          >
+            <Layers
+              size={18}
+              color={currentScreen === 'components' ? '#0284c7' : '#64748b'}
+            />
           </View>
-          <Text style={[styles.tabBarItemButtonTextLabel, { color: currentScreen === 'components' ? '#0284c7' : '#64748b' }]}>Components</Text>
+          <Text
+            style={[
+              styles.tabBarItemButtonTextLabel,
+              { color: currentScreen === 'components' ? '#0284c7' : '#64748b' },
+            ]}
+          >
+            Components
+          </Text>
         </TouchableOpacity>
 
         <TouchableOpacity
           style={styles.tabBarItemButton}
-          onPress={() => setCurrentScreen('alert')}
+          onPress={() => animateToScreen('alert')}
           activeOpacity={0.7}
         >
-          <View style={[styles.tabIconWrapper, currentScreen === 'alert' && styles.activeTabIconWrapper]}>
-            <AlertCircle size={18} color={currentScreen === 'alert' ? '#0284c7' : '#64748b'} />
+          <View
+            style={[
+              styles.tabIconWrapper,
+              currentScreen === 'alert' && styles.activeTabIconWrapper,
+            ]}
+          >
+            <AlertCircle
+              size={18}
+              color={currentScreen === 'alert' ? '#0284c7' : '#64748b'}
+            />
           </View>
-          <Text style={[styles.tabBarItemButtonTextLabel, { color: currentScreen === 'alert' ? '#0284c7' : '#64748b' }]}>Alert</Text>
+          <Text
+            style={[
+              styles.tabBarItemButtonTextLabel,
+              { color: currentScreen === 'alert' ? '#0284c7' : '#64748b' },
+            ]}
+          >
+            Alert
+          </Text>
         </TouchableOpacity>
 
         <TouchableOpacity
           style={styles.tabBarItemButton}
-          onPress={() => setCurrentScreen('profile')}
+          onPress={() => animateToScreen('profile')}
           activeOpacity={0.7}
         >
-          <View style={[styles.tabIconWrapper, currentScreen === 'profile' && styles.activeTabIconWrapper]}>
-            <User size={18} color={currentScreen === 'profile' ? '#0284c7' : '#64748b'} />
+          <View
+            style={[
+              styles.tabIconWrapper,
+              currentScreen === 'profile' && styles.activeTabIconWrapper,
+            ]}
+          >
+            <User
+              size={18}
+              color={currentScreen === 'profile' ? '#0284c7' : '#64748b'}
+            />
           </View>
-          <Text style={[styles.tabBarItemButtonTextLabel, { color: currentScreen === 'profile' ? '#0284c7' : '#64748b' }]}>Profile</Text>
+          <Text
+            style={[
+              styles.tabBarItemButtonTextLabel,
+              { color: currentScreen === 'profile' ? '#0284c7' : '#64748b' },
+            ]}
+          >
+            Profile
+          </Text>
         </TouchableOpacity>
       </View>
     </View>
@@ -375,6 +648,13 @@ export default function MobileDashboard() {
 }
 
 const styles = StyleSheet.create({
+  authGateLoader: {
+    flex: 1,
+    backgroundColor: '#f8fafc',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 12,
+  },
   screenRootContainer: {
     flex: 1,
     backgroundColor: '#0f172a',
@@ -403,28 +683,41 @@ const styles = StyleSheet.create({
   mainStageWrapper: {
     flex: 1,
     backgroundColor: '#f8fafc',
-    borderTopLeftRadius: 0,
-    borderTopRightRadius: 0,
     overflow: 'hidden',
   },
   headerLeftBlock: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   brandTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  brandTitleText: { fontSize: 22, fontWeight: '800', color: '#ffffff', letterSpacing: -0.5 },
+  brandTitleText: {
+    fontSize: 22,
+    fontWeight: '800',
+    color: '#ffffff',
+    letterSpacing: -0.5,
+  },
   onlineBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(16, 185, 129, 0.15)',
+    backgroundColor: 'rgba(56, 189, 248, 0.18)',
     paddingHorizontal: 6,
     paddingVertical: 2,
     borderRadius: 12,
     gap: 4,
   },
-  offlineBadge: { backgroundColor: 'rgba(239, 68, 68, 0.15)' },
-  onlinePulseDot: { width: 5, height: 5, borderRadius: 2.5, backgroundColor: '#10b981' },
+  offlineBadge: { backgroundColor: 'rgba(239, 68, 68, 0.18)' },
+  onlinePulseDot: {
+    width: 5,
+    height: 5,
+    borderRadius: 2.5,
+    backgroundColor: '#38bdf8',
+  },
   offlinePulseDot: { backgroundColor: '#ef4444' },
-  onlineBadgeText: { fontSize: 9, fontWeight: '700', color: '#10b981' },
-  offlineBadgeText: { color: '#ef4444' },
-  brandSubtitleText: { marginTop: 2, fontSize: 12, color: '#94a3b8', fontWeight: '500' },
+  onlineBadgeText: { fontSize: 9, fontWeight: '700', color: '#38bdf8' },
+  offlineBadgeText: { color: '#f87171' },
+  brandSubtitleText: {
+    marginTop: 2,
+    fontSize: 12,
+    color: '#94a3b8',
+    fontWeight: '500',
+  },
   headerActionTray: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   actionIconBtn: {
     backgroundColor: '#1e293b',
@@ -435,7 +728,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     position: 'relative',
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.05)',
+    borderColor: 'rgba(255, 255, 255, 0.06)',
   },
   activeNotificationAlertDot: {
     position: 'absolute',
@@ -462,28 +755,49 @@ const styles = StyleSheet.create({
   },
   summaryItem: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   summaryItemText: { fontSize: 12, fontWeight: '600', color: '#475569' },
-  summaryDivider: { width: 1, height: 14, backgroundColor: '#cbd5e1', marginHorizontal: 16 },
-  sectionHeaderTitle: { marginBottom: 14, fontSize: 16, fontWeight: '700', color: '#0f172a', letterSpacing: -0.3 },
-  loaderContainer: { paddingVertical: 40, alignItems: 'center', justifyContent: 'center', gap: 12 },
+  summaryDivider: {
+    width: 1,
+    height: 14,
+    backgroundColor: '#cbd5e1',
+    marginHorizontal: 16,
+  },
+  sectionHeaderTitle: {
+    marginBottom: 14,
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#0f172a',
+    letterSpacing: -0.3,
+  },
+  loaderContainer: {
+    paddingVertical: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 12,
+  },
   loaderText: { fontSize: 13, color: '#64748b', fontWeight: '500' },
   emptyContainer: {
     backgroundColor: '#ffffff',
     borderRadius: 18,
     padding: 32,
     alignItems: 'center',
-    gap: 12,
+    gap: 10,
     marginTop: 10,
     borderWidth: 1,
     borderColor: '#e2e8f0',
-    elevation: 2,
-    shadowColor: '#0f172a',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.04,
-    shadowRadius: 6,
   },
   emptyTitle: { fontSize: 16, fontWeight: '700', color: '#0f172a' },
-  emptySub: { fontSize: 14, color: '#f59e0b', textAlign: 'center', fontWeight: '600' },
-  deviceSelectionGrid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', gap: 12 },
+  emptySub: {
+    fontSize: 13,
+    color: '#64748b',
+    textAlign: 'center',
+    fontWeight: '500',
+  },
+  deviceSelectionGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
   interactiveDeviceCard: {
     backgroundColor: '#ffffff',
     borderRadius: 18,
@@ -492,23 +806,42 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     padding: 14,
     borderWidth: 1,
-    borderColor: '#f1f5f9',
-    elevation: 2,
-    shadowColor: '#0f172a',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.04,
-    shadowRadius: 6,
+    borderColor: '#e2e8f0',
   },
-  cardAccentGlowBar: { position: 'absolute', top: 0, left: 0, right: 0, height: 4 },
-  deviceCardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 },
-  deviceCardIndexLabel: { fontSize: 14, fontWeight: '700', color: '#0f172a' },
+  cardAccentGlowBar: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 4,
+  },
+  deviceCardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: 4,
+  },
+  deviceCardIndexLabel: {
+    flex: 1,
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#0f172a',
+  },
   statusBadge: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 },
-  normalBadge: { backgroundColor: '#dcfce7' },
-  warningBadge: { backgroundColor: '#fee2e2' },
+  onlineNodeBadge: { backgroundColor: '#e0f2fe' },
+  offlineNodeBadge: { backgroundColor: '#fee2e2' },
+  warningBadge: { backgroundColor: '#fef3c7' },
   statusBadgeText: { fontSize: 9, fontWeight: '700' },
-  normalBadgeText: { color: '#15803d' },
-  warningBadgeText: { color: '#b91c1c' },
-  deviceCardLocationSubtext: { fontSize: 11, color: '#64748b', fontWeight: '500', marginTop: 2 },
+  onlineNodeBadgeText: { color: '#0284c7' },
+  offlineNodeBadgeText: { color: '#b91c1c' },
+  warningBadgeText: { color: '#b45309' },
+  deviceCardLocationSubtext: {
+    fontSize: 11,
+    color: '#64748b',
+    fontWeight: '500',
+    marginTop: 2,
+  },
   cardMetricsPreview: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -518,8 +851,19 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: '#f1f5f9',
   },
-  metricLabel: { fontSize: 10, fontWeight: '600', color: '#94a3b8', textTransform: 'uppercase' },
+  metricLabel: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: '#94a3b8',
+    textTransform: 'uppercase',
+  },
   metricValue: { fontSize: 16, fontWeight: '800', marginTop: 1 },
+  offlineCardNote: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#dc2626',
+    marginTop: 2,
+  },
   unitText: { fontSize: 10, fontWeight: '600', color: '#64748b' },
   footerTabBarDock: {
     position: 'absolute',
@@ -542,7 +886,12 @@ const styles = StyleSheet.create({
     zIndex: 15,
   },
   tabBarItemButton: { alignItems: 'center', justifyContent: 'center', flex: 1 },
-  tabIconWrapper: { paddingVertical: 4, paddingHorizontal: 12, borderRadius: 12, marginBottom: 2 },
+  tabIconWrapper: {
+    paddingVertical: 4,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    marginBottom: 2,
+  },
   activeTabIconWrapper: { backgroundColor: '#e0f2fe' },
   tabBarItemButtonTextLabel: { fontSize: 10, fontWeight: '600' },
 });

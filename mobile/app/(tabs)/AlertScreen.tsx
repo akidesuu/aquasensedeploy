@@ -22,6 +22,7 @@ import {
   Sliders,
   X,
 } from 'lucide-react-native';
+import { useAuth } from './_layout';
 import { FloaterDevice } from './ComponentsScreen';
 
 export interface SystemAlert {
@@ -65,8 +66,12 @@ const AlertCard = memo(
       : isWarning
       ? '#fde68a'
       : '#cbd5e1';
-    const badgeBg = isCritical ? '#fee2e2' : isWarning ? '#fef3c7' : '#f1f5f9';
-    const badgeTextColor = isCritical ? '#b91c1c' : isWarning ? '#b45309' : '#475569';
+    const badgeBg = isCritical ? '#fee2e2' : isWarning ? '#fef3c7' : '#e0f2fe';
+    const badgeTextColor = isCritical
+      ? '#b91c1c'
+      : isWarning
+      ? '#b45309'
+      : '#0284c7';
 
     return (
       <View
@@ -118,12 +123,12 @@ const AlertCard = memo(
           >
             <CheckCircle2
               size={14}
-              color={item.isResolved ? '#059669' : '#64748b'}
+              color={item.isResolved ? '#0284c7' : '#64748b'}
             />
             <Text
               style={[
                 styles.resolveActionText,
-                item.isResolved && { color: '#059669' },
+                item.isResolved && { color: '#0284c7' },
               ]}
             >
               {item.isResolved ? 'Resolved' : 'Mark as Resolved'}
@@ -141,21 +146,19 @@ export default function AlertScreen({
   onSelectAlertDevice,
   onAlertsChange,
 }: AlertScreenProps) {
+  const { token } = useAuth();
   const [backendAlerts, setBackendAlerts] = useState<SystemAlert[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
-  
-  // Threshold States
+
   const [minDoThreshold, setMinDoThreshold] = useState<string>('4.0');
   const [maxDoThreshold, setMaxDoThreshold] = useState<string>('10.0');
   const [tempMin, setTempMin] = useState<string>('4.0');
   const [tempMax, setTempMax] = useState<string>('10.0');
 
-  // Modal Visibility
   const [isModalVisible, setIsModalVisible] = useState<boolean>(false);
   const [resolvedIds, setResolvedIds] = useState<string[]>([]);
 
-  // Load saved thresholds from AsyncStorage on mount
   useEffect(() => {
     const loadSavedThresholds = async () => {
       try {
@@ -178,11 +181,25 @@ export default function AlertScreen({
 
   const fetchAlertsFromBackend = useCallback(async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/api/alerts`);
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      };
+      const response = await fetch(`${API_BASE_URL}/api/alerts`, { headers });
       if (response.ok) {
         const data = await response.json();
         if (Array.isArray(data)) {
-          const formattedAlerts: SystemAlert[] = data.map((alt: any) => ({
+          const ownedIds = new Set(
+            devices.flatMap((d) => [String(d.id), String(d.device_id || '')]).filter(Boolean)
+          );
+          const filtered =
+            ownedIds.size > 0
+              ? data.filter((alt: any) =>
+                  ownedIds.has(String(alt.device_id || alt.deviceId || ''))
+                )
+              : data;
+
+          const formattedAlerts: SystemAlert[] = filtered.map((alt: any) => ({
             id: String(alt.id || alt._id),
             deviceId: alt.device_id || alt.deviceId,
             deviceName: alt.device_name || alt.deviceName || `Node ${alt.device_id}`,
@@ -197,28 +214,27 @@ export default function AlertScreen({
         }
       }
     } catch (error) {
-      console.warn("Could not fetch remote alerts:", error);
+      console.warn('Could not fetch remote alerts:', error);
     } finally {
       setIsLoading(false);
       setIsRefreshing(false);
     }
-  }, []);
+  }, [devices, token]);
 
   useEffect(() => {
     setIsLoading(true);
     fetchAlertsFromBackend();
   }, [fetchAlertsFromBackend]);
 
-  // DYNAMIC ALERTS FOR BOTH MINIMUM & MAXIMUM PRECISE DO THRESHOLDS
   const dynamicAlerts = useMemo(() => {
     const minLimit = parseFloat(minDoThreshold) || 4.0;
     const maxLimit = parseFloat(maxDoThreshold) || 10.0;
     const generated: SystemAlert[] = [];
 
     devices.forEach((dev) => {
+      if (String(dev.status || '').toLowerCase() === 'offline') return;
       const currentDo = dev.metrics?.predictedDo ?? 5.25;
 
-      // Minimum DO Alert (Too Low)
       if (currentDo <= minLimit) {
         const alertId = `dynamic-low-do-${dev.id}`;
         generated.push({
@@ -228,13 +244,12 @@ export default function AlertScreen({
           location: dev.location,
           severity: 'critical',
           title: 'Low Dissolved Oxygen Warning',
-          message: `Predicted DO level dropped to ${currentDo.toFixed(2)} mg/L (Min Limit: <= ${minLimit} mg/L). Aeration required.`,
+          message: `Predicted DO dropped to ${currentDo.toFixed(2)} mg/L (Min Limit: <= ${minLimit} mg/L). Aeration required.`,
           timestamp: 'Live stream',
           isResolved: resolvedIds.includes(alertId),
         });
       }
 
-      // Maximum DO Alert (Too High / 10++)
       if (currentDo >= maxLimit) {
         const alertId = `dynamic-high-do-${dev.id}`;
         generated.push({
@@ -244,15 +259,17 @@ export default function AlertScreen({
           location: dev.location,
           severity: 'warning',
           title: 'High Dissolved Oxygen Warning',
-          message: `Predicted DO level rose to ${currentDo.toFixed(2)} mg/L (Max Limit: >= ${maxLimit} mg/L). Monitor water status.`,
+          message: `Predicted DO rose to ${currentDo.toFixed(2)} mg/L (Max Limit: >= ${maxLimit} mg/L). Monitor water status.`,
           timestamp: 'Live stream',
           isResolved: resolvedIds.includes(alertId),
         });
       }
     });
 
-    const combined = [...generated, ...backendAlerts.filter(b => !generated.some(g => g.deviceId === b.deviceId))];
-    return combined;
+    return [
+      ...generated,
+      ...backendAlerts.filter((b) => !generated.some((g) => g.deviceId === b.deviceId)),
+    ];
   }, [devices, minDoThreshold, maxDoThreshold, resolvedIds, backendAlerts]);
 
   useEffect(() => {
@@ -286,22 +303,29 @@ export default function AlertScreen({
     fetchAlertsFromBackend();
   };
 
-  const activeAlerts = useMemo(() => {
-    return dynamicAlerts.filter((item) => !item.isResolved);
-  }, [dynamicAlerts]);
+  const activeAlerts = useMemo(
+    () => dynamicAlerts.filter((item) => !item.isResolved),
+    [dynamicAlerts]
+  );
 
   return (
     <ScrollView
       contentContainerStyle={styles.container}
       showsVerticalScrollIndicator={false}
       refreshControl={
-        <RefreshControl refreshing={isRefreshing} onRefresh={handleRefresh} tintColor="#0284c7" />
+        <RefreshControl
+          refreshing={isRefreshing}
+          onRefresh={handleRefresh}
+          tintColor="#0284c7"
+        />
       }
     >
       <View style={styles.headerBar}>
         <View>
           <Text style={styles.screenHeaderTitle}>System Notifications</Text>
-          <Text style={styles.screenHeaderSub}>Min: {minDoThreshold} | Max: {maxDoThreshold} mg/L</Text>
+          <Text style={styles.screenHeaderSub}>
+            Min: {minDoThreshold} | Max: {maxDoThreshold} mg/L
+          </Text>
         </View>
         <TouchableOpacity
           style={styles.thresholdBtn}
@@ -325,10 +349,10 @@ export default function AlertScreen({
           </View>
         ) : activeAlerts.length === 0 ? (
           <View style={styles.emptyStateContainer}>
-            <Bell size={32} color="#cbd5e1" />
+            <Bell size={32} color="#94a3b8" />
             <Text style={styles.emptyStateTitle}>No Active Alerts</Text>
             <Text style={styles.emptyStateSubtext}>
-              All active nodes are operating within your safety range ({minDoThreshold} - {maxDoThreshold} mg/L).
+              Your active nodes are within {minDoThreshold} - {maxDoThreshold} mg/L.
             </Text>
           </View>
         ) : (
@@ -343,10 +367,9 @@ export default function AlertScreen({
         )}
       </View>
 
-      {/* CONFIGURATION MODAL WITH DIRECT NUMERIC TEXT INPUTS */}
       <Modal
         animationType="fade"
-        transparent={true}
+        transparent
         visible={isModalVisible}
         onRequestClose={() => setIsModalVisible(false)}
       >
@@ -362,10 +385,9 @@ export default function AlertScreen({
               </TouchableOpacity>
             </View>
             <Text style={styles.modalBodyText}>
-              Type your exact decimal limits. Alerts will trigger if dissolved oxygen crosses these boundaries (supports 10++ mg/L).
+              Set minimum and maximum Dissolved Oxygen boundaries in mg/L.
             </Text>
 
-            {/* MINIMUM DO INPUT FIELD */}
             <View style={styles.inputBlock}>
               <Text style={styles.inputLabel}>Minimum DO Limit (mg/L)</Text>
               <TextInput
@@ -378,7 +400,6 @@ export default function AlertScreen({
               />
             </View>
 
-            {/* MAXIMUM DO INPUT FIELD (10++ SUPPORTED) */}
             <View style={[styles.inputBlock, { marginTop: 14 }]}>
               <Text style={styles.inputLabel}>Maximum DO Limit (mg/L)</Text>
               <TextInput
@@ -436,36 +457,118 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     padding: 16,
     borderWidth: 1,
-    elevation: 2,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.03,
-    shadowRadius: 3,
   },
   resolvedCardStyle: { opacity: 0.7, backgroundColor: '#f8fafc' },
-  alertCardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
-  headerLeftGroup: { flexDirection: 'row', alignItems: 'center', gap: 8, flexShrink: 1 },
-  severityBadge: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
+  alertCardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  headerLeftGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flexShrink: 1,
+  },
+  severityBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+  },
   severityBadgeText: { fontSize: 10, fontWeight: '800' },
   deviceNameLink: { fontSize: 12, fontWeight: '700', color: '#0284c7' },
   timestampGroup: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   timestampText: { fontSize: 11, color: '#94a3b8', fontWeight: '500' },
-  alertTitleText: { fontSize: 15, fontWeight: '700', color: '#0f172a', marginBottom: 4 },
-  alertMessageText: { fontSize: 13, color: '#475569', lineHeight: 18, marginBottom: 12 },
-  alertCardFooter: { flexDirection: 'row', justifyContent: 'flex-end', borderTopWidth: 1, borderTopColor: '#f1f5f9', paddingTop: 10 },
-  resolveActionBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 6, backgroundColor: '#f1f5f9' },
-  resolveActionBtnDone: { backgroundColor: '#ecfdf5' },
+  alertTitleText: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#0f172a',
+    marginBottom: 4,
+  },
+  alertMessageText: {
+    fontSize: 13,
+    color: '#475569',
+    lineHeight: 18,
+    marginBottom: 12,
+  },
+  alertCardFooter: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    borderTopWidth: 1,
+    borderTopColor: '#f1f5f9',
+    paddingTop: 10,
+  },
+  resolveActionBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 6,
+    backgroundColor: '#f1f5f9',
+  },
+  resolveActionBtnDone: { backgroundColor: '#e0f2fe' },
   resolveActionText: { fontSize: 12, fontWeight: '600', color: '#64748b' },
-  emptyStateContainer: { alignItems: 'center', justifyContent: 'center', paddingVertical: 40, backgroundColor: '#ffffff', borderRadius: 16, borderWidth: 1, borderColor: '#e2e8f0' },
-  emptyStateTitle: { marginTop: 10, fontSize: 14, fontWeight: '700', color: '#334155' },
-  emptyStateSubtext: { marginTop: 4, fontSize: 12, color: '#94a3b8', textAlign: 'center', paddingHorizontal: 20 },
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(15, 23, 42, 0.6)', justifyContent: 'center', alignItems: 'center', padding: 24 },
-  modalContentCard: { backgroundColor: '#ffffff', borderRadius: 24, padding: 24, width: '100%', maxWidth: 340, elevation: 10, shadowColor: '#0f172a', shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.2, shadowRadius: 15 },
-  modalHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
+  emptyStateContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 40,
+    backgroundColor: '#ffffff',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+  },
+  emptyStateTitle: {
+    marginTop: 10,
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#334155',
+  },
+  emptyStateSubtext: {
+    marginTop: 4,
+    fontSize: 12,
+    color: '#94a3b8',
+    textAlign: 'center',
+    paddingHorizontal: 20,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(15, 23, 42, 0.6)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  modalContentCard: {
+    backgroundColor: '#ffffff',
+    borderRadius: 24,
+    padding: 24,
+    width: '100%',
+    maxWidth: 340,
+  },
+  modalHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
   modalTitleText: { fontSize: 18, fontWeight: '800', color: '#0f172a' },
-  modalBodyText: { fontSize: 12, color: '#64748b', lineHeight: 16, marginBottom: 16 },
+  modalBodyText: {
+    fontSize: 12,
+    color: '#64748b',
+    lineHeight: 16,
+    marginBottom: 16,
+  },
   inputBlock: { width: '100%' },
-  inputLabel: { fontSize: 11, fontWeight: '700', color: '#334155', marginBottom: 6 },
+  inputLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#334155',
+    marginBottom: 6,
+  },
   textInputBox: {
     backgroundColor: '#f8fafc',
     borderRadius: 12,
@@ -477,6 +580,13 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#0f172a',
   },
-  modalSaveButton: { backgroundColor: '#0284c7', borderRadius: 12, height: 48, justifyContent: 'center', alignItems: 'center', marginTop: 24 },
+  modalSaveButton: {
+    backgroundColor: '#0284c7',
+    borderRadius: 12,
+    height: 48,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: 24,
+  },
   modalSaveButtonText: { color: '#ffffff', fontSize: 14, fontWeight: '700' },
 });

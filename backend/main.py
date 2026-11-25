@@ -26,7 +26,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 
 #
-# 1. JWT CONFIGURATION
+# 1. JWT & PRESENCE CONFIGURATION
 #
 SECRET_KEY = os.getenv("JWT_SECRET_KEY", "your_32_character_secret_key_here_secure_enough")
 if not SECRET_KEY or len(SECRET_KEY) < 32:
@@ -34,6 +34,7 @@ if not SECRET_KEY or len(SECRET_KEY) < 32:
 
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60
+ONLINE_TIMEOUT_SECONDS = int(os.getenv("ONLINE_TIMEOUT_SECONDS", "120"))
 security = HTTPBearer(auto_error=False)
 
 #
@@ -97,6 +98,10 @@ try:
     )
     db = mongo_client["aquasense_db"]
     mongo_client.server_info()
+    db["accounts"].update_many(
+        {"is_online": {"$exists": False}},
+        {"$set": {"is_online": False, "last_seen_at": None}},
+    )
     print(">>> Success: Connected securely to MongoDB Atlas cluster.")
 except Exception as e:
     print(f">>>> Warning: MongoDB database connection failed: {e}")
@@ -142,6 +147,26 @@ def _to_utc_aware(dt_val) -> Optional[datetime]:
             return dt_val.replace(tzinfo=timezone.utc)
         return dt_val.astimezone(timezone.utc)
     return None
+
+def compute_is_online(account_doc: Optional[dict], now_utc: Optional[datetime] = None) -> bool:
+    if not account_doc:
+        return False
+    if not bool(account_doc.get("is_online", False)):
+        return False
+    last_seen = _to_utc_aware(account_doc.get("last_seen_at"))
+    if last_seen is None:
+        return False
+    ref_now = now_utc or datetime.now(timezone.utc)
+    return (ref_now - last_seen) <= timedelta(seconds=ONLINE_TIMEOUT_SECONDS)
+
+def _touch_user_presence(email: Optional[str], is_online: bool = True):
+    if db is None or not email:
+        return
+    now_utc = datetime.now(timezone.utc)
+    db["accounts"].update_one(
+        {"email": email.strip().lower()},
+        {"$set": {"is_online": is_online, "last_seen_at": now_utc}},
+    )
 
 def hash_password(password: str) -> str:
     password_bytes = password.encode("utf-8")
@@ -336,6 +361,8 @@ class AccountResponse(BaseModel):
     role: str
     status: str
     createdAt: str
+    is_online: bool = False
+    last_seen_at: Optional[str] = None
 
 class DeviceCreatePayload(BaseModel):
     id: Optional[str] = Field(None, json_schema_extra={"example": "ESP32_POND_01"})
@@ -421,6 +448,8 @@ def register_user(payload: UserAuthPayload):
             "location": "BonBon",
             "role": UserRole.FARMER.value,
             "status": AccountStatus.ACTIVE.value,
+            "is_online": False,
+            "last_seen_at": None,
             "password_hash": hash_password(payload.password),
             "createdAt": created_at_str,
             "created_at_dt": now_dt,
@@ -453,9 +482,15 @@ def login_user(payload: UserAuthPayload):
         )
 
     user_role = str(user_record.get("role", "Farmer")).strip()
+    now_utc = datetime.now(timezone.utc)
+    user_email = str(user_record.get("email"))
+    db["accounts"].update_one(
+        {"_id": user_record["_id"]},
+        {"$set": {"is_online": True, "last_seen_at": now_utc}},
+    )
 
     token = create_access_token(
-        subject=str(user_record.get("email")),
+        subject=user_email,
         extra_claims={
             "id": user_record.get("id"),
             "name": user_record.get("name", user_identifier),
@@ -467,21 +502,56 @@ def login_user(payload: UserAuthPayload):
         "status": "Authenticated",
         "id": user_record.get("id"),
         "username": user_record.get("name", user_identifier),
-        "email": user_record.get("email", user_identifier),
+        "email": user_email,
         "role": user_role,
+        "location": user_record.get("location", "Unassigned Field Station"),
+        "is_online": True,
+        "last_seen_at": now_utc.isoformat(),
         "access_token": token,
         "token": token,
         "token_type": "bearer",
         "message": f"Access granted to AquaSense session as {user_role}.",
     }
 
+@app.post("/auth/heartbeat")
+def auth_heartbeat(current_user: dict = Depends(get_current_user)):
+    email = current_user.get("sub")
+    _touch_user_presence(email, is_online=True)
+    now_utc = datetime.now(timezone.utc)
+    return {
+        "status": "ok",
+        "is_online": True,
+        "last_seen_at": now_utc.isoformat(),
+    }
+
+@app.post("/auth/logout")
+def auth_logout(current_user: dict = Depends(get_current_user)):
+    email = current_user.get("sub")
+    _touch_user_presence(email, is_online=False)
+    now_utc = datetime.now(timezone.utc)
+    return {
+        "status": "offline",
+        "is_online": False,
+        "last_seen_at": now_utc.isoformat(),
+    }
+
 @app.get("/api/me")
 def get_me(current_user: dict = Depends(get_current_user)):
+    email = str(current_user.get("sub") or "").strip().lower()
+    db_user = db["accounts"].find_one({"email": email}) if db is not None and email else None
+    now_utc = datetime.now(timezone.utc)
+    online = compute_is_online(db_user, now_utc)
+    last_seen_dt = _to_utc_aware(db_user.get("last_seen_at")) if db_user else None
+
     return {
         "email": current_user.get("sub"),
-        "id": current_user.get("id"),
-        "role": current_user.get("role"),
-        "name": current_user.get("name"),
+        "id": (db_user.get("id") if db_user else None) or current_user.get("id"),
+        "role": (db_user.get("role") if db_user else None) or current_user.get("role"),
+        "name": (db_user.get("name") if db_user else None) or current_user.get("name"),
+        "location": db_user.get("location", "BonBon") if db_user else "BonBon",
+        "is_online": online,
+        "online_status": "Online" if online else "Offline",
+        "last_seen_at": last_seen_dt.isoformat() if last_seen_dt else None,
     }
 
 @app.get("/api/users/{user_id}")
@@ -492,13 +562,20 @@ def get_user_profile(user_id: str, current_user: dict = Depends(get_current_user
     if not user_doc:
         raise HTTPException(status_code=404, detail="User not found.")
 
+    now_utc = datetime.now(timezone.utc)
+    online = compute_is_online(user_doc, now_utc)
+    last_seen_dt = _to_utc_aware(user_doc.get("last_seen_at"))
+
     return {
         "id": user_doc.get("id"),
         "name": user_doc.get("name"),
         "email": user_doc.get("email"),
         "location": user_doc.get("location", "BonBon"),
         "role": user_doc.get("role", "Farmer"),
-        "profile_image": user_doc.get("profile_image", None)
+        "profile_image": user_doc.get("profile_image", None),
+        "is_online": online,
+        "online_status": "Online" if online else "Offline",
+        "last_seen_at": last_seen_dt.isoformat() if last_seen_dt else None,
     }
 
 @app.put("/api/users/{user_id}/profile-image")
@@ -529,8 +606,11 @@ def get_all_accounts(current_user: dict = Depends(require_super_admin)):
     if db is None:
         raise HTTPException(status_code=500, detail="Database connection is unavailable.")
     cursor = db["accounts"].find().sort("created_at_dt", -1)
+    now_utc = datetime.now(timezone.utc)
     accounts = []
     for doc in cursor:
+        online = compute_is_online(doc, now_utc)
+        last_seen_dt = _to_utc_aware(doc.get("last_seen_at"))
         accounts.append(
             AccountResponse(
                 id=str(doc.get("id", "")),
@@ -540,6 +620,8 @@ def get_all_accounts(current_user: dict = Depends(require_super_admin)):
                 role=str(doc.get("role", "Farmer")),
                 status=str(doc.get("status", "Active")),
                 createdAt=str(doc.get("createdAt", "")),
+                is_online=online,
+                last_seen_at=last_seen_dt.isoformat() if last_seen_dt else None,
             )
         )
     return accounts
@@ -567,6 +649,8 @@ def create_account(payload: AccountCreatePayload, current_user: dict = Depends(r
         "location": payload.location.strip(),
         "role": payload.role.value,
         "status": payload.status.value,
+        "is_online": False,
+        "last_seen_at": None,
         "password_hash": hash_password(raw_password),
         "createdAt": created_at_str,
         "created_at_dt": now_dt,
@@ -580,6 +664,8 @@ def create_account(payload: AccountCreatePayload, current_user: dict = Depends(r
         role=account_doc["role"],
         status=account_doc["status"],
         createdAt=account_doc["createdAt"],
+        is_online=False,
+        last_seen_at=None,
     )
 
 @app.put("/api/accounts/{account_id}", response_model=AccountResponse)
@@ -618,6 +704,9 @@ def update_account(account_id: str, payload: AccountUpdatePayload, current_user:
         db["accounts"].update_one({"id": account_id}, {"$set": update_fields})
 
     updated_doc = db["accounts"].find_one({"id": account_id})
+    now_utc = datetime.now(timezone.utc)
+    online = compute_is_online(updated_doc, now_utc)
+    last_seen_dt = _to_utc_aware(updated_doc.get("last_seen_at"))
     return AccountResponse(
         id=updated_doc["id"],
         name=updated_doc["name"],
@@ -626,6 +715,8 @@ def update_account(account_id: str, payload: AccountUpdatePayload, current_user:
         role=updated_doc["role"],
         status=updated_doc["status"],
         createdAt=updated_doc.get("createdAt", ""),
+        is_online=online,
+        last_seen_at=last_seen_dt.isoformat() if last_seen_dt else None,
     )
 
 @app.delete("/api/accounts/{account_id}", status_code=status.HTTP_200_OK)
@@ -647,17 +738,37 @@ def get_all_devices(current_user: dict = Depends(get_current_user)):
     if db is None:
         raise HTTPException(status_code=500, detail="Database connection is unavailable.")
     try:
+        role_lower = str(current_user.get("role", "")).strip().lower()
+        user_id_claim = str(current_user.get("id", "")).strip().lower()
+        email_claim = str(current_user.get("sub", "")).strip().lower()
+        name_claim = str(current_user.get("name", "")).strip().lower()
+        farmer_identifiers = {v for v in [user_id_claim, email_claim, name_claim] if v}
+
         cursor = db["devices"].find()
         devices = []
 
         for doc in cursor:
+            assigned_uid = doc.get("assignedUserId") or doc.get("assigned_user_id")
+            assigned_name = doc.get("assignedUserName") or doc.get("assigned_user_name")
+
+            if role_lower == "farmer":
+                owner_id_val = str(assigned_uid or "").strip().lower()
+                owner_name_val = str(assigned_name or "").strip().lower()
+                matches_owner = (
+                    (bool(owner_id_val) and owner_id_val in farmer_identifiers)
+                    or (bool(owner_name_val) and owner_name_val in farmer_identifiers)
+                )
+                if not matches_owner:
+                    continue
+
             dev_id = str(doc.get("device_id") or doc.get("id") or "").strip()
             latest_tel = db["raw_telemetry"].find_one(
                 {"$or": [{"device_id": dev_id}, {"id": dev_id}]},
                 sort=[("_id", -1)]
             ) if dev_id else None
 
-            # Online if and only if telemetry has been sent to the database
+            # Online if and only if telemetry has been sent to the database;
+            # offline devices are still returned so owned nodes remain visible.
             has_sent_data = latest_tel is not None
             status_val = "Online" if has_sent_data else "Offline"
 
@@ -669,9 +780,6 @@ def get_all_devices(current_user: dict = Depends(get_current_user)):
                     "turbidity": float(latest_tel.get("turbidity", 0.0) or 0.0),
                 }
 
-            assigned_uid = doc.get("assignedUserId") or doc.get("assigned_user_id")
-            assigned_name = doc.get("assignedUserName") or doc.get("assigned_user_name")
-
             devices.append(
                 DeviceResponse(
                     id=str(doc.get("id") or dev_id),
@@ -681,7 +789,7 @@ def get_all_devices(current_user: dict = Depends(get_current_user)):
                     assignedUserId=assigned_uid,
                     assignedUserName=assigned_name,
                     status=status_val,
-                    color="#22c55e" if status_val == "Online" else "#ef4444",
+                    color="#0284c7" if status_val == "Online" else "#ef4444",
                     metrics=metrics,
                 )
             )
@@ -722,7 +830,7 @@ def register_device(payload: DeviceCreatePayload, current_user: dict = Depends(r
         "assignedUserId": str(assigned_uid).strip() if assigned_uid and str(assigned_uid).strip() not in ["", "none", "null"] else None,
         "assignedUserName": assigned_name,
         "status": computed_status,
-        "color": "#22c55e" if computed_status == "Online" else "#ef4444",
+        "color": "#0284c7" if computed_status == "Online" else "#ef4444",
     }
 
     db["devices"].update_one(
@@ -751,7 +859,7 @@ def register_device(payload: DeviceCreatePayload, current_user: dict = Depends(r
         assignedUserId=saved_doc.get("assignedUserId"),
         assignedUserName=saved_doc.get("assignedUserName"),
         status=computed_status,
-        color="#22c55e" if computed_status == "Online" else "#ef4444",
+        color="#0284c7" if computed_status == "Online" else "#ef4444",
         metrics=metrics,
     )
 
@@ -812,7 +920,7 @@ def _process_device_update(device_id: str, payload: DeviceUpdatePayload):
         assignedUserId=updated_doc.get("assignedUserId"),
         assignedUserName=updated_doc.get("assignedUserName"),
         status=computed_status,
-        color="#22c55e" if computed_status == "Online" else "#ef4444",
+        color="#0284c7" if computed_status == "Online" else "#ef4444",
         metrics=metrics,
     )
 
