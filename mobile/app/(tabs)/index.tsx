@@ -13,6 +13,8 @@ import {
   Animated,
 } from 'react-native';
 import { useRouter } from 'expo-router';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as Notifications from 'expo-notifications';
 import {
   Bell,
   Home,
@@ -24,18 +26,60 @@ import {
   Wifi,
   WifiOff,
 } from 'lucide-react-native';
-import { useAuth, MobileUser } from './_layout';
+import { useAuth, UserData } from '../_layout';
 import AlertScreen from './AlertScreen';
 import ProfileScreen from './Profile';
 import ComponentsScreen, { FloaterDevice } from './ComponentsScreen';
 
 const { width } = Dimensions.get('window');
 const API_BASE_URL = 'https://aquasense-backend-osmi.onrender.com';
-const HEARTBEAT_INTERVAL_MS = 45000;
+const STORAGE_KEY_MIN_DO = '@aquasense_min_do_threshold';
+const STORAGE_KEY_MAX_DO = '@aquasense_max_do_threshold';
+const ALERT_COOLDOWN_MS = 60000;
 
 type ScreenTab = 'home' | 'components' | 'alert' | 'profile';
 
-const isOwnedByFarmer = (dev: any, farmer: MobileUser | null): boolean => {
+const lastAlertSentTimeMap = new Map<string, number>();
+
+async function triggerThresholdNotification(
+  deviceName: string,
+  currentDo: number,
+  limitType: 'LOW' | 'HIGH',
+  thresholdVal: number
+) {
+  const deviceKey = `${deviceName}_${limitType}`;
+  const now = Date.now();
+  const lastSent = lastAlertSentTimeMap.get(deviceKey) || 0;
+
+  if (now - lastSent < ALERT_COOLDOWN_MS) {
+    return;
+  }
+
+  lastAlertSentTimeMap.set(deviceKey, now);
+
+  const title =
+    limitType === 'LOW'
+      ? `🚨 CRITICAL: Low DO Warning`
+      : `⚠️ ALERT: High DO Warning`;
+
+  const body =
+    limitType === 'LOW'
+      ? `${deviceName} recorded DO at ${currentDo.toFixed(2)} mg/L (Limit: <= ${thresholdVal} mg/L). Aeration required!`
+      : `${deviceName} recorded DO at ${currentDo.toFixed(2)} mg/L (Limit: >= ${thresholdVal} mg/L). Check water conditions.`;
+
+  await Notifications.scheduleNotificationAsync({
+    content: {
+      title,
+      body,
+      sound: true,
+      vibrate: [0, 500, 250, 500],
+      data: { targetScreen: 'alert' },
+    },
+    trigger: null,
+  });
+}
+
+const isOwnedByFarmer = (dev: any, farmer: UserData | null): boolean => {
   if (!farmer) return false;
 
   const ownerId = String(
@@ -46,7 +90,13 @@ const isOwnedByFarmer = (dev: any, farmer: MobileUser | null): boolean => {
 
   if (!ownerId) return false;
 
-  const candidateIds = [farmer.id, farmer.email]
+  const farmerAny = farmer as any;
+  const candidateIds = [
+    farmerAny.id,
+    farmer.email,
+    farmerAny.username,
+    farmer.name,
+  ]
     .filter(Boolean)
     .map((v) => String(v).trim().toLowerCase());
 
@@ -55,7 +105,9 @@ const isOwnedByFarmer = (dev: any, farmer: MobileUser | null): boolean => {
 
 export default function MobileDashboard() {
   const router = useRouter();
-  const { logout, user, token, isLoadingAuth } = useAuth();
+  const auth = useAuth();
+  const { logout, user } = auth;
+  const isLoadingAuth = Boolean((auth as any)?.isLoadingAuth);
 
   const [currentScreen, setCurrentScreen] = useState<ScreenTab>('home');
   const [selectedDevice, setSelectedDevice] = useState<FloaterDevice | null>(null);
@@ -77,6 +129,37 @@ export default function MobileDashboard() {
   }, [devices]);
 
   useEffect(() => {
+    async function setupNotifications() {
+      const { status } = await Notifications.requestPermissionsAsync();
+      if (status !== 'granted') {
+        console.warn('Notification permissions not granted');
+      }
+
+      if (Platform.OS === 'android') {
+        await Notifications.setNotificationChannelAsync('do-threshold-alerts', {
+          name: 'Dissolved Oxygen Alerts',
+          importance: Notifications.AndroidImportance.HIGH,
+          vibrationPattern: [0, 500, 250, 500],
+          sound: 'default',
+        });
+      }
+    }
+
+    setupNotifications();
+
+    const subscription = Notifications.addNotificationResponseReceivedListener(
+      (response) => {
+        const targetScreen = response.notification.request.content.data?.targetScreen;
+        if (targetScreen === 'alert') {
+          setCurrentScreen('alert');
+        }
+      }
+    );
+
+    return () => subscription.remove();
+  }, []);
+
+  useEffect(() => {
     if (user) {
       hasRedirectedRef.current = false;
       return;
@@ -86,28 +169,6 @@ export default function MobileDashboard() {
       router.replace('/login');
     }
   }, [isLoadingAuth, user, router]);
-
-  useEffect(() => {
-    if (!user || !token) return;
-
-    const sendHeartbeat = async () => {
-      try {
-        await fetch(`${API_BASE_URL}/auth/heartbeat`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${token}`,
-          },
-        });
-      } catch {
-        // Ignore transient network errors during heartbeat
-      }
-    };
-
-    sendHeartbeat();
-    const timer = setInterval(sendHeartbeat, HEARTBEAT_INTERVAL_MS);
-    return () => clearInterval(timer);
-  }, [user, token]);
 
   const animateToScreen = useCallback(
     (nextScreen: ScreenTab) => {
@@ -146,11 +207,9 @@ export default function MobileDashboard() {
   const fetchFarmerDevices = useCallback(async () => {
     if (!user) return;
     try {
-      const headers: Record<string, string> = {
-        'Content-Type': 'application/json',
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      };
-      const response = await fetch(`${API_BASE_URL}/api/devices`, { headers });
+      const response = await fetch(`${API_BASE_URL}/api/devices`, {
+        headers: { 'Content-Type': 'application/json' },
+      });
       if (!response.ok) {
         setIsConnected(false);
         setDevices([]);
@@ -198,7 +257,7 @@ export default function MobileDashboard() {
       setIsLoading(false);
       setIsRefreshing(false);
     }
-  }, [user, token]);
+  }, [user]);
 
   const fetchOnlineTelemetry = useCallback(async () => {
     const currentDevices = devicesRef.current;
@@ -208,14 +267,9 @@ export default function MobileDashboard() {
     if (onlineDevices.length === 0) return;
 
     try {
-      const headers: Record<string, string> = {
-        'Content-Type': 'application/json',
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      };
-
       let latestPred = 5.25;
       try {
-        const predRes = await fetch(`${API_BASE_URL}/predict`, { headers });
+        const predRes = await fetch(`${API_BASE_URL}/predict`);
         if (predRes.ok) {
           const predData = await predRes.json();
           if (predData.predicted_do !== undefined) {
@@ -233,8 +287,7 @@ export default function MobileDashboard() {
           const queryId = encodeURIComponent(device.device_id || String(device.id));
           try {
             const telRes = await fetch(
-              `${API_BASE_URL}/telemetry/latest?device_id=${queryId}`,
-              { headers }
+              `${API_BASE_URL}/telemetry/latest?device_id=${queryId}`
             );
             if (telRes.ok) {
               const telData = await telRes.json();
@@ -271,7 +324,39 @@ export default function MobileDashboard() {
     } catch {
       // Ignore transient poll errors
     }
-  }, [token]);
+  }, []);
+
+  useEffect(() => {
+    const checkThresholdAlerts = async () => {
+      try {
+        const savedMin = parseFloat(
+          (await AsyncStorage.getItem(STORAGE_KEY_MIN_DO)) || '4.0'
+        );
+        const savedMax = parseFloat(
+          (await AsyncStorage.getItem(STORAGE_KEY_MAX_DO)) || '10.0'
+        );
+
+        devices.forEach((dev) => {
+          if (String(dev.status || '').toLowerCase() === 'offline') return;
+
+          const currentDo = dev.metrics?.predictedDo;
+          if (typeof currentDo !== 'number') return;
+
+          if (currentDo <= savedMin) {
+            triggerThresholdNotification(dev.name, currentDo, 'LOW', savedMin);
+          } else if (currentDo >= savedMax) {
+            triggerThresholdNotification(dev.name, currentDo, 'HIGH', savedMax);
+          }
+        });
+      } catch (err) {
+        console.warn('Failed checking threshold alerts:', err);
+      }
+    };
+
+    if (devices.length > 0) {
+      checkThresholdAlerts();
+    }
+  }, [devices]);
 
   useEffect(() => {
     if (user) {
@@ -345,7 +430,7 @@ export default function MobileDashboard() {
     );
   }
 
-  const farmerName = user?.name || user?.username || 'Farmer';
+  const farmerName = user?.name || (user as any)?.username || 'Farmer';
   const onlineCount = devices.filter(
     (d) => String(d.status || '').toLowerCase() === 'online'
   ).length;

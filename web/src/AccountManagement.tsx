@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useEffect } from 'react';
+import React, { useMemo, useState, useEffect, useCallback } from 'react';
 import type { FormEvent } from 'react';
 import {
   UserPlus,
@@ -20,7 +20,8 @@ import {
   ShieldAlert,
   Crown,
   RefreshCw,
-  Activity
+  Activity,
+  Cpu
 } from 'lucide-react';
 
 export type AccountRole = 'Farmer' | 'Admin' | 'Super Admin';
@@ -33,7 +34,7 @@ export interface Account {
   location: string;
   role: AccountRole;
   createdAt: string;
-  status: AccountStatus;
+  status?: AccountStatus;
   is_online?: boolean;
   last_seen_at?: string | null;
 }
@@ -67,11 +68,18 @@ interface AccountForm {
   status: AccountStatus;
 }
 
+interface DeviceCountSummary {
+  total: number;
+  online: number;
+}
+
 const BASE_URL =
   import.meta.env.VITE_API_BASE_URL ||
   import.meta.env.VITE_API_URL ||
   'https://aquasense-backend-osmi.onrender.com';
-const API_BASE_URL = `${BASE_URL.replace(/\/$/, '')}/api/accounts`;
+const CLEAN_BASE_URL = BASE_URL.replace(/\/$/, '');
+const API_BASE_URL = `${CLEAN_BASE_URL}/api/accounts`;
+const DEVICES_API_URL = `${CLEAN_BASE_URL}/api/devices`;
 
 const getAuthHeaders = () => {
   const token = localStorage.getItem('token') || localStorage.getItem('access_token');
@@ -117,10 +125,10 @@ export default function AccountManagement({
   onDeleteAccount
 }: AccountManagementProps) {
   const [accounts, setAccounts] = useState<Account[]>([]);
+  const [devices, setDevices] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [search, setSearch] = useState('');
   const [roleFilter, setRoleFilter] = useState<'All' | AccountRole>('All');
-  const [statusFilter, setStatusFilter] = useState<'All' | AccountStatus>('All');
   const [presenceFilter, setPresenceFilter] = useState<'All' | 'Online' | 'Offline'>('All');
   const [showModal, setShowModal] = useState(false);
   const [editingAccount, setEditingAccount] = useState<Account | null>(null);
@@ -133,15 +141,31 @@ export default function AccountManagement({
     message: string;
   } | null>(null);
 
-  const fetchAccounts = async (silent = false) => {
+  const showError = useCallback((message: string) => {
+    setNotice({ type: 'error', message });
+  }, []);
+
+  const showSuccess = useCallback((message: string) => {
+    setNotice({ type: 'success', message });
+    window.setTimeout(() => setNotice(null), 3500);
+  }, []);
+
+  const fetchAccounts = useCallback(async (silent = false) => {
     if (!silent) setIsLoading(true);
     try {
-      const response = await fetch(API_BASE_URL, {
-        headers: getAuthHeaders()
-      });
-      if (!response.ok) throw new Error('Failed to fetch accounts.');
-      const data: Account[] = await response.json();
-      setAccounts(data);
+      const [accRes, devRes] = await Promise.all([
+        fetch(API_BASE_URL, { headers: getAuthHeaders() }),
+        fetch(DEVICES_API_URL, { headers: getAuthHeaders() }).catch(() => null)
+      ]);
+
+      if (!accRes.ok) throw new Error('Failed to fetch accounts.');
+      const data: Account[] = await accRes.json();
+      setAccounts(Array.isArray(data) ? data : []);
+
+      if (devRes && devRes.ok) {
+        const devData = await devRes.json();
+        setDevices(Array.isArray(devData) ? devData : []);
+      }
     } catch (err: any) {
       if (!silent) {
         showError(err.message || 'Error connecting to the database server.');
@@ -149,15 +173,54 @@ export default function AccountManagement({
     } finally {
       if (!silent) setIsLoading(false);
     }
-  };
+  }, [showError]);
 
   useEffect(() => {
     fetchAccounts(false);
     const interval = setInterval(() => {
       fetchAccounts(true);
-    }, 10000); // Poll presence every 10 seconds dynamically
+    }, 10000);
     return () => clearInterval(interval);
-  }, []);
+  }, [fetchAccounts]);
+
+  const deviceCountsByAccount = useMemo(() => {
+    const map = new Map<string, DeviceCountSummary>();
+
+    accounts.forEach((acc) => {
+      const keys = new Set(
+        [acc.id, acc.email, acc.name]
+          .filter(Boolean)
+          .map((val) => String(val).trim().toLowerCase())
+      );
+
+      let total = 0;
+      let online = 0;
+
+      devices.forEach((dev) => {
+        const owner = String(
+          dev?.assignedUserId ??
+            dev?.assigned_user_id ??
+            dev?.assigned_user ??
+            dev?.assignedUserEmail ??
+            dev?.assigned_user_email ??
+            ''
+        )
+          .trim()
+          .toLowerCase();
+
+        if (owner && keys.has(owner)) {
+          total += 1;
+          if (String(dev?.status || '').trim().toLowerCase() === 'online') {
+            online += 1;
+          }
+        }
+      });
+
+      map.set(acc.id, { total, online });
+    });
+
+    return map;
+  }, [accounts, devices]);
 
   const filteredAccounts = useMemo(() => {
     const keyword = search.trim().toLowerCase();
@@ -169,16 +232,15 @@ export default function AccountManagement({
         account.email.toLowerCase().includes(keyword) ||
         account.location.toLowerCase().includes(keyword);
       const matchesRole = roleFilter === 'All' || account.role === roleFilter;
-      const matchesStatus = statusFilter === 'All' || (account.status ?? 'Active') === statusFilter;
       const isOnline = Boolean(account.is_online);
       const matchesPresence =
         presenceFilter === 'All' ||
         (presenceFilter === 'Online' && isOnline) ||
         (presenceFilter === 'Offline' && !isOnline);
 
-      return matchesSearch && matchesRole && matchesStatus && matchesPresence;
+      return matchesSearch && matchesRole && matchesPresence;
     });
-  }, [accounts, search, roleFilter, statusFilter, presenceFilter]);
+  }, [accounts, search, roleFilter, presenceFilter]);
 
   const farmerCount = accounts.filter((acc) => acc.role === 'Farmer').length;
   const adminCount = accounts.filter((acc) => acc.role === 'Admin').length;
@@ -229,15 +291,6 @@ export default function AccountManagement({
       ...previous,
       [field]: value
     }));
-  };
-
-  const showSuccess = (message: string) => {
-    setNotice({ type: 'success', message });
-    window.setTimeout(() => setNotice(null), 3500);
-  };
-
-  const showError = (message: string) => {
-    setNotice({ type: 'error', message });
   };
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
@@ -445,15 +498,6 @@ export default function AccountManagement({
               <option value="Online">Online Now</option>
               <option value="Offline">Offline</option>
             </select>
-            <select
-              value={statusFilter}
-              onChange={(event) => setStatusFilter(event.target.value as 'All' | AccountStatus)}
-              style={styles.filterSelect}
-            >
-              <option value="All">All Statuses</option>
-              <option value="Active">Active</option>
-              <option value="Inactive">Inactive</option>
-            </select>
           </div>
         </div>
 
@@ -465,8 +509,8 @@ export default function AccountManagement({
                 <th style={styles.th}>PRESENCE</th>
                 <th style={styles.th}>FARM / LOCATION</th>
                 <th style={styles.th}>ASSIGNED ROLE</th>
+                <th style={styles.th}>DEVICES</th>
                 <th style={styles.th}>CREATED DATE</th>
-                <th style={styles.th}>STATUS</th>
                 <th style={{ ...styles.th, textAlign: 'right' }}>ACTIONS</th>
               </tr>
             </thead>
@@ -495,6 +539,11 @@ export default function AccountManagement({
               ) : (
                 filteredAccounts.map((account) => {
                   const isOnline = Boolean(account.is_online);
+                  const deviceSummary = deviceCountsByAccount.get(account.id) ?? {
+                    total: 0,
+                    online: 0
+                  };
+
                   return (
                     <tr key={account.id} style={styles.tr}>
                       <td style={styles.td}>
@@ -566,26 +615,22 @@ export default function AccountManagement({
                         </span>
                       </td>
                       <td style={styles.td}>
+                        <div style={styles.devicesCell}>
+                          <span style={styles.deviceCountBadge}>
+                            <Cpu size={13} color="#0284c7" />
+                            {deviceSummary.total}{' '}
+                            {deviceSummary.total === 1 ? 'device' : 'devices'}
+                          </span>
+                          <span style={styles.deviceOnlineSubtext}>
+                            {deviceSummary.online} online
+                          </span>
+                        </div>
+                      </td>
+                      <td style={styles.td}>
                         <div style={styles.dateCell}>
                           <Clock3 size={14} color="#64748b" style={{ flexShrink: 0 }} />
                           {account.createdAt}
                         </div>
-                      </td>
-                      <td style={styles.td}>
-                        <span
-                          style={{
-                            ...styles.statusBadge,
-                            ...(account.status === 'Inactive' ? styles.inactiveBadge : styles.activeBadge)
-                          }}
-                        >
-                          <span
-                            style={{
-                              ...styles.statusDot,
-                              ...(account.status === 'Inactive' ? styles.inactiveDot : styles.activeDot)
-                            }}
-                          />
-                          {account.status ?? 'Active'}
-                        </span>
                       </td>
                       <td style={styles.td}>
                         <div style={styles.actions}>
@@ -1038,7 +1083,7 @@ const styles: Record<string, React.CSSProperties> = {
     borderCollapse: 'collapse',
     textAlign: 'left',
     fontSize: 13,
-    minWidth: 720
+    minWidth: 740
   },
   th: {
     padding: '12px 16px',
@@ -1177,40 +1222,35 @@ const styles: Record<string, React.CSSProperties> = {
     background: '#f3e8ff',
     color: '#7e22ce'
   },
+  devicesCell: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 2
+  },
+  deviceCountBadge: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 5,
+    padding: '3px 9px',
+    borderRadius: 12,
+    fontSize: 11,
+    fontWeight: 700,
+    background: '#f0f9ff',
+    color: '#0f172a',
+    border: '1px solid #e0f2fe',
+    width: 'fit-content'
+  },
+  deviceOnlineSubtext: {
+    fontSize: 10,
+    color: '#64748b',
+    fontWeight: 500
+  },
   dateCell: {
     display: 'flex',
     alignItems: 'center',
     gap: 6,
     color: '#64748b',
     fontSize: 12
-  },
-  statusBadge: {
-    display: 'inline-flex',
-    alignItems: 'center',
-    gap: 6,
-    padding: '4px 10px',
-    borderRadius: 20,
-    fontSize: 12,
-    fontWeight: 600
-  },
-  activeBadge: {
-    background: '#f0fdf4',
-    color: '#166534'
-  },
-  inactiveBadge: {
-    background: '#fef2f2',
-    color: '#991b1b'
-  },
-  statusDot: {
-    width: 6,
-    height: 6,
-    borderRadius: '50%'
-  },
-  activeDot: {
-    background: '#22c55e'
-  },
-  inactiveDot: {
-    background: '#ef4444'
   },
   actions: {
     display: 'flex',

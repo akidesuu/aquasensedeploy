@@ -29,9 +29,9 @@ const API_BASE_URL = 'https://aquasense-backend-osmi.onrender.com';
 
 export default function LoginScreen() {
   const router = useRouter();
-  const auth = useAuth() as any;
+  const auth = useAuth();
   const { login, user } = auth;
-  const isLoadingAuth = Boolean(auth?.isLoadingAuth);
+  const isLoadingAuth = Boolean((auth as { isLoadingAuth?: boolean })?.isLoadingAuth);
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -65,7 +65,9 @@ export default function LoginScreen() {
 
   useEffect(() => {
     if (!isLoadingAuth && user) {
-      const roleLower = String(user.role || '').trim().toLowerCase();
+      const roleLower = String((user as { role?: string }).role || '')
+        .trim()
+        .toLowerCase();
       if (roleLower === 'farmer') {
         router.replace('/(tabs)');
       }
@@ -132,17 +134,26 @@ export default function LoginScreen() {
         return;
       }
 
-      const authToken = data.access_token || data.token || null;
-      await login({
-        id: data.id || data.user?.id,
-        name: data.username || data.name || data.user?.name || email.split('@')[0],
-        username: data.username || data.name || data.user?.name || email.split('@')[0],
-        email: data.email || data.user?.email || email.trim().toLowerCase(),
-        role: data.role || 'Farmer',
-        location: data.location || data.user?.location || 'Unassigned Field Station',
-        token: authToken,
-        access_token: authToken,
-      } as any);
+      const resolvedName =
+        data.username || data.name || data.user?.name || email.split('@')[0];
+      const resolvedEmail =
+        data.email || data.user?.email || email.trim().toLowerCase();
+      const resolvedLocation =
+        data.location || data.user?.location || 'Unassigned Field Station';
+      const resolvedId = data.id || data.user?.id;
+
+      const userPayload = Object.assign(
+        {
+          name: resolvedName,
+          username: resolvedName,
+          email: resolvedEmail,
+          role: data.role || 'Farmer',
+          location: resolvedLocation,
+        },
+        resolvedId ? { id: resolvedId } : {}
+      );
+
+      await login(userPayload as Parameters<typeof login>[0]);
 
       setLoading(false);
       router.replace('/(tabs)');

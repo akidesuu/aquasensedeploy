@@ -22,7 +22,6 @@ import {
   Sliders,
   X,
 } from 'lucide-react-native';
-import { useAuth } from './_layout';
 import { FloaterDevice } from './ComponentsScreen';
 
 export interface SystemAlert {
@@ -146,7 +145,6 @@ export default function AlertScreen({
   onSelectAlertDevice,
   onAlertsChange,
 }: AlertScreenProps) {
-  const { token } = useAuth();
   const [backendAlerts, setBackendAlerts] = useState<SystemAlert[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
@@ -181,16 +179,16 @@ export default function AlertScreen({
 
   const fetchAlertsFromBackend = useCallback(async () => {
     try {
-      const headers: Record<string, string> = {
-        'Content-Type': 'application/json',
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      };
-      const response = await fetch(`${API_BASE_URL}/api/alerts`, { headers });
+      const response = await fetch(`${API_BASE_URL}/api/alerts`, {
+        headers: { 'Content-Type': 'application/json' },
+      });
       if (response.ok) {
         const data = await response.json();
         if (Array.isArray(data)) {
           const ownedIds = new Set(
-            devices.flatMap((d) => [String(d.id), String(d.device_id || '')]).filter(Boolean)
+            devices
+              .flatMap((d) => [String(d.id), String(d.device_id || '')])
+              .filter(Boolean)
           );
           const filtered =
             ownedIds.size > 0
@@ -219,7 +217,7 @@ export default function AlertScreen({
       setIsLoading(false);
       setIsRefreshing(false);
     }
-  }, [devices, token]);
+  }, [devices]);
 
   useEffect(() => {
     setIsLoading(true);

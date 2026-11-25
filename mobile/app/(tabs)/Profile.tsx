@@ -27,7 +27,7 @@ import {
 import { useAuth } from './_layout';
 
 interface ProfileScreenProps {
-  onLogout?: () => Promise<void> | void;
+  onLogout?: () => void;
 }
 
 const STORAGE_KEY_PROFILE_IMAGE = '@aquasense_farmer_profile_image';
@@ -93,11 +93,11 @@ export default function ProfileScreen({ onLogout }: ProfileScreenProps) {
       {
         text: 'Log Out',
         style: 'destructive',
-        onPress: async () => {
+        onPress: () => {
           if (onLogout) {
-            await onLogout();
+            onLogout();
           } else {
-            await logout();
+            logout();
           }
           router.replace('/login');
         },

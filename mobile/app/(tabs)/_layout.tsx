@@ -1,10 +1,17 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Stack } from 'expo-router';
+import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
+import { Platform } from 'react-native';
+import { Stack, useRouter } from 'expo-router';
+import * as Notifications from 'expo-notifications';
 
-const API_BASE_URL = 'https://aquasense-backend-osmi.onrender.com';
-const TOKEN_KEY = 'aquasense_auth_token';
-const USER_KEY = 'aquasense_auth_user';
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowAlert: true,
+    shouldShowBanner: true,
+    shouldShowList: true,
+    shouldPlaySound: true,
+    shouldSetBadge: true,
+  }),
+});
 
 export interface MobileUser {
   id?: string;
@@ -17,18 +24,16 @@ export interface MobileUser {
 
 interface AuthContextType {
   user: MobileUser | null;
-  token: string | null;
   isLoadingAuth: boolean;
-  login: (authData: any) => Promise<void>;
-  logout: () => Promise<void>;
+  login: (userData: any) => void;
+  logout: () => void;
 }
 
 const AuthContext = createContext<AuthContextType>({
   user: null,
-  token: null,
-  isLoadingAuth: true,
-  login: async () => {},
-  logout: async () => {},
+  isLoadingAuth: false,
+  login: () => {},
+  logout: () => {},
 });
 
 export function useAuth() {
@@ -36,87 +41,68 @@ export function useAuth() {
 }
 
 export default function RootLayout() {
+  const router = useRouter();
   const [user, setUser] = useState<MobileUser | null>(null);
-  const [token, setToken] = useState<string | null>(null);
-  const [isLoadingAuth, setIsLoadingAuth] = useState<boolean>(true);
+  const [isLoadingAuth, setIsLoadingAuth] = useState<boolean>(false);
 
   useEffect(() => {
-    let mounted = true;
-    const restoreSession = async () => {
-      try {
-        const [savedToken, savedUser] = await Promise.all([
-          AsyncStorage.getItem(TOKEN_KEY),
-          AsyncStorage.getItem(USER_KEY),
-        ]);
-        if (!mounted) return;
-        if (savedToken && savedUser) {
-          setToken(savedToken);
-          setUser(JSON.parse(savedUser));
-        }
-      } catch (err) {
-        console.warn('Failed to restore auth session:', err);
-      } finally {
-        if (mounted) {
-          setIsLoadingAuth(false);
-        }
+    // 2. Request notification permissions & set up Android vibration channel
+    async function setupNotifications() {
+      const { status } = await Notifications.requestPermissionsAsync();
+      if (status !== 'granted') {
+        console.warn('Notification permissions not granted');
       }
-    };
-    restoreSession();
-    return () => {
-      mounted = false;
-    };
-  }, []);
 
-  const login = useCallback(async (authData: any) => {
-    const receivedToken = authData?.access_token || authData?.token || '';
+      if (Platform.OS === 'android') {
+        await Notifications.setNotificationChannelAsync('do-threshold-alerts', {
+          name: 'Dissolved Oxygen Alerts',
+          importance: Notifications.AndroidImportance.HIGH,
+          vibrationPattern: [0, 500, 250, 500],
+          sound: 'default',
+        });
+      }
+    }
+
+    setupNotifications();
+
+    // 3. Listen for when user taps the pop-up notification
+    const subscription = Notifications.addNotificationResponseReceivedListener((response) => {
+      const data = response.notification.request.content.data;
+      if (data?.targetScreen === 'alert') {
+        // Navigates directly to your tabs screen
+        router.replace('/(tabs)');
+      }
+    });
+
+    return () => subscription.remove();
+  }, [router]);
+
+  const login = useCallback((userData: any) => {
     const resolvedUser: MobileUser = {
-      id: authData?.id,
-      email: authData?.email,
-      username: authData?.username || authData?.name,
-      name: authData?.name || authData?.username || authData?.email || 'Farmer',
-      role: authData?.role || 'Farmer',
-      location: authData?.location,
+      id: userData?.id || userData?.user?.id,
+      email: userData?.email || userData?.user?.email,
+      username: userData?.username || userData?.user?.username || userData?.name,
+      name:
+        userData?.name ||
+        userData?.username ||
+        userData?.user?.name ||
+        userData?.email ||
+        'Farmer',
+      role: userData?.role || userData?.user?.role || 'Farmer',
+      location: userData?.location || userData?.user?.location || 'Unassigned Field Station',
     };
 
-    // Update React state immediately before AsyncStorage finishes
-    setToken(receivedToken || null);
-    setUser(resolvedUser);
     setIsLoadingAuth(false);
-
-    try {
-      if (receivedToken) {
-        await AsyncStorage.setItem(TOKEN_KEY, receivedToken);
-      }
-      await AsyncStorage.setItem(USER_KEY, JSON.stringify(resolvedUser));
-    } catch (err) {
-      console.warn('Failed to persist auth session:', err);
-    }
+    setUser(resolvedUser);
   }, []);
 
-  const logout = useCallback(async () => {
-    const currentToken = token;
-    setUser(null);
-    setToken(null);
+  const logout = useCallback(() => {
     setIsLoadingAuth(false);
-
-    try {
-      if (currentToken) {
-        await fetch(`${API_BASE_URL}/auth/logout`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${currentToken}`,
-          },
-        }).catch(() => {});
-      }
-      await AsyncStorage.multiRemove([TOKEN_KEY, USER_KEY]);
-    } catch (err) {
-      console.warn('Failed to clear auth session:', err);
-    }
-  }, [token]);
+    setUser(null);
+  }, []);
 
   return (
-    <AuthContext.Provider value={{ user, token, isLoadingAuth, login, logout }}>
+    <AuthContext.Provider value={{ user, isLoadingAuth, login, logout }}>
       <Stack screenOptions={{ headerShown: false }} />
     </AuthContext.Provider>
   );
