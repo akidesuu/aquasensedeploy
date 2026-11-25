@@ -76,6 +76,7 @@ export default function MobileDashboard() {
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
   const [isConnected, setIsConnected] = useState<boolean>(true);
 
+  const hasRedirectedRef = useRef<boolean>(false);
   const stageOpacity = useRef(new Animated.Value(1)).current;
   const stageTranslateY = useRef(new Animated.Value(0)).current;
 
@@ -85,7 +86,12 @@ export default function MobileDashboard() {
   }, [devices]);
 
   useEffect(() => {
-    if (!isLoadingAuth && !user) {
+    if (user) {
+      hasRedirectedRef.current = false;
+      return;
+    }
+    if (!isLoadingAuth && !user && !hasRedirectedRef.current) {
+      hasRedirectedRef.current = true;
       router.replace('/login');
     }
   }, [isLoadingAuth, user, router]);
@@ -271,7 +277,9 @@ export default function MobileDashboard() {
 
   useEffect(() => {
     if (selectedDevice) {
-      const refreshed = devices.find((d) => String(d.id) === String(selectedDevice.id));
+      const refreshed = devices.find(
+        (d) => String(d.id) === String(selectedDevice.id)
+      );
       if (refreshed) {
         setSelectedDevice(refreshed);
       }
@@ -290,7 +298,8 @@ export default function MobileDashboard() {
 
   const handleSelectDeviceFromAlert = (deviceId: string | number) => {
     const target = devices.find(
-      (d) => String(d.id) === String(deviceId) || String(d.device_id) === String(deviceId)
+      (d) =>
+        String(d.id) === String(deviceId) || String(d.device_id) === String(deviceId)
     );
     if (target) {
       setSelectedDevice(target);
@@ -298,11 +307,27 @@ export default function MobileDashboard() {
     }
   };
 
-  if (isLoadingAuth || !user) {
+  if (isLoadingAuth) {
     return (
       <View style={styles.authGateLoader}>
         <ActivityIndicator size="large" color="#0284c7" />
         <Text style={styles.loaderText}>Verifying farmer session...</Text>
+      </View>
+    );
+  }
+
+  if (!user) {
+    return (
+      <View style={styles.authGateLoader}>
+        <ActivityIndicator size="large" color="#0284c7" />
+        <Text style={styles.loaderText}>Redirecting to sign in...</Text>
+        <TouchableOpacity
+          style={styles.goLoginBtn}
+          onPress={() => router.replace('/login')}
+          activeOpacity={0.85}
+        >
+          <Text style={styles.goLoginBtnText}>Go to Farmer Login</Text>
+        </TouchableOpacity>
       </View>
     );
   }
@@ -654,6 +679,19 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 12,
+    padding: 24,
+  },
+  goLoginBtn: {
+    backgroundColor: '#0284c7',
+    paddingHorizontal: 18,
+    paddingVertical: 10,
+    borderRadius: 10,
+    marginTop: 4,
+  },
+  goLoginBtnText: {
+    color: '#ffffff',
+    fontWeight: '700',
+    fontSize: 13,
   },
   screenRootContainer: {
     flex: 1,

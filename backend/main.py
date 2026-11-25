@@ -129,7 +129,7 @@ else:
     print(">>>> Warning: ML model artifacts incomplete or missing. Run retraining pass to generate model files.")
 
 #
-# 5. SECURITY, DATETIME & JWT UTILITIES
+# 5. SECURITY, DATETIME, PRESENCE & OWNERSHIP UTILITIES
 #
 def _to_utc_aware(dt_val) -> Optional[datetime]:
     if dt_val is None:
@@ -167,6 +167,43 @@ def _touch_user_presence(email: Optional[str], is_online: bool = True):
         {"email": email.strip().lower()},
         {"$set": {"is_online": is_online, "last_seen_at": now_utc}},
     )
+
+def _user_owns_device(device_doc: dict, current_user: dict) -> bool:
+    role_lower = str(current_user.get("role", "")).strip().lower()
+    if role_lower in ["super admin", "super_admin", "superadmin", "admin"]:
+        return True
+
+    user_id = str(current_user.get("id") or "").strip().lower()
+    email = str(current_user.get("sub") or "").strip().lower()
+
+    allowed_ids = {v for v in [user_id] if v}
+    allowed_emails = {v for v in [email] if v}
+
+    if db is not None and (user_id or email):
+        or_clauses = []
+        if current_user.get("id"):
+            or_clauses.append({"id": current_user.get("id")})
+        if email:
+            or_clauses.append({"email": email})
+        if or_clauses:
+            acct = db["accounts"].find_one({"$or": or_clauses})
+            if acct:
+                if acct.get("id"):
+                    allowed_ids.add(str(acct["id"]).strip().lower())
+                if acct.get("email"):
+                    allowed_emails.add(str(acct["email"]).strip().lower())
+
+    assigned_uid = str(
+        device_doc.get("assignedUserId")
+        or device_doc.get("assigned_user_id")
+        or device_doc.get("assigned_user")
+        or ""
+    ).strip().lower()
+
+    if not assigned_uid:
+        return False
+
+    return assigned_uid in allowed_ids or assigned_uid in allowed_emails
 
 def hash_password(password: str) -> str:
     password_bytes = password.encode("utf-8")
@@ -739,28 +776,15 @@ def get_all_devices(current_user: dict = Depends(get_current_user)):
         raise HTTPException(status_code=500, detail="Database connection is unavailable.")
     try:
         role_lower = str(current_user.get("role", "")).strip().lower()
-        user_id_claim = str(current_user.get("id", "")).strip().lower()
-        email_claim = str(current_user.get("sub", "")).strip().lower()
-        name_claim = str(current_user.get("name", "")).strip().lower()
-        farmer_identifiers = {v for v in [user_id_claim, email_claim, name_claim] if v}
-
         cursor = db["devices"].find()
         devices = []
 
         for doc in cursor:
+            if role_lower == "farmer" and not _user_owns_device(doc, current_user):
+                continue
+
             assigned_uid = doc.get("assignedUserId") or doc.get("assigned_user_id")
             assigned_name = doc.get("assignedUserName") or doc.get("assigned_user_name")
-
-            if role_lower == "farmer":
-                owner_id_val = str(assigned_uid or "").strip().lower()
-                owner_name_val = str(assigned_name or "").strip().lower()
-                matches_owner = (
-                    (bool(owner_id_val) and owner_id_val in farmer_identifiers)
-                    or (bool(owner_name_val) and owner_name_val in farmer_identifiers)
-                )
-                if not matches_owner:
-                    continue
-
             dev_id = str(doc.get("device_id") or doc.get("id") or "").strip()
             latest_tel = db["raw_telemetry"].find_one(
                 {"$or": [{"device_id": dev_id}, {"id": dev_id}]},
@@ -1073,7 +1097,20 @@ def get_telemetry(
     if db is None:
         raise HTTPException(status_code=500, detail="Database connection is unavailable.")
     try:
-        cursor = db["raw_telemetry"].find().sort("_id", -1).limit(limit)
+        role_lower = str(current_user.get("role", "")).strip().lower()
+        owned_ids = set()
+        if role_lower == "farmer":
+            for dev in db["devices"].find():
+                if _user_owns_device(dev, current_user):
+                    if dev.get("device_id"):
+                        owned_ids.add(str(dev["device_id"]).strip())
+                    if dev.get("id"):
+                        owned_ids.add(str(dev["id"]).strip())
+            if not owned_ids:
+                return []
+
+        query = {"device_id": {"$in": list(owned_ids)}} if role_lower == "farmer" else {}
+        cursor = db["raw_telemetry"].find(query).sort("_id", -1).limit(limit)
         telemetry_records = []
         for record in cursor:
             record["_id"] = str(record["_id"])
@@ -1093,7 +1130,7 @@ def get_latest_telemetry(
     if db is None:
         raise HTTPException(status_code=500, detail="Database connection is unavailable.")
     try:
-        query = {"device_id": device_id} if device_id else {}
+        role_lower = str(current_user.get("role", "")).strip().lower()
         if device_id:
             device_exists = db["devices"].find_one(
                 {"$or": [{"id": device_id}, {"device_id": device_id}]}
@@ -1103,6 +1140,29 @@ def get_latest_telemetry(
                     status_code=status.HTTP_404_NOT_FOUND,
                     detail=f"Device with ID '{device_id}' does not exist.",
                 )
+            if not _user_owns_device(device_exists, current_user):
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="You do not have access to this device.",
+                )
+            query = {"device_id": device_id}
+        elif role_lower == "farmer":
+            owned_ids = []
+            for dev in db["devices"].find():
+                if _user_owns_device(dev, current_user):
+                    if dev.get("device_id"):
+                        owned_ids.append(str(dev["device_id"]).strip())
+                    if dev.get("id"):
+                        owned_ids.append(str(dev["id"]).strip())
+            if not owned_ids:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="No telemetry data found for your assigned devices.",
+                )
+            query = {"device_id": {"$in": owned_ids}}
+        else:
+            query = {}
+
         latest_record = db["raw_telemetry"].find_one(query, sort=[("_id", -1)])
         if not latest_record:
             raise HTTPException(
@@ -1128,7 +1188,36 @@ def get_telemetry_history(
     if db is None:
         raise HTTPException(status_code=500, detail="Database connection is unavailable.")
     try:
-        query = {"device_id": device_id} if device_id else {}
+        role_lower = str(current_user.get("role", "")).strip().lower()
+        if device_id:
+            device_exists = db["devices"].find_one(
+                {"$or": [{"id": device_id}, {"device_id": device_id}]}
+            )
+            if not device_exists:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Device with ID '{device_id}' does not exist.",
+                )
+            if not _user_owns_device(device_exists, current_user):
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="You do not have access to this device.",
+                )
+            query = {"device_id": device_id}
+        elif role_lower == "farmer":
+            owned_ids = []
+            for dev in db["devices"].find():
+                if _user_owns_device(dev, current_user):
+                    if dev.get("device_id"):
+                        owned_ids.append(str(dev["device_id"]).strip())
+                    if dev.get("id"):
+                        owned_ids.append(str(dev["id"]).strip())
+            if not owned_ids:
+                return []
+            query = {"device_id": {"$in": owned_ids}}
+        else:
+            query = {}
+
         cursor = db["raw_telemetry"].find(query).sort("_id", -1).limit(limit)
         history = []
         for record in cursor:
@@ -1138,6 +1227,8 @@ def get_telemetry_history(
                 record["timestamp"] = ts.isoformat()
             history.append(record)
         return history
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -1171,7 +1262,26 @@ def get_latest_prediction(current_user: dict = Depends(get_current_user)):
     if db is None:
         raise HTTPException(status_code=500, detail="Database connection is unavailable.")
     try:
-        latest_record = db["prediction_logs"].find_one(sort=[("_id", -1)])
+        role_lower = str(current_user.get("role", "")).strip().lower()
+        query = {}
+        if role_lower == "farmer":
+            owned_ids = []
+            for dev in db["devices"].find():
+                if _user_owns_device(dev, current_user):
+                    if dev.get("device_id"):
+                        owned_ids.append(str(dev["device_id"]).strip())
+                    if dev.get("id"):
+                        owned_ids.append(str(dev["id"]).strip())
+            if not owned_ids:
+                return {
+                    "message": "No machine learning logs for your assigned devices yet.",
+                    "predicted_do": 7.0,
+                    "predictedDO": 7.0,
+                    "status": "Stable",
+                }
+            query = {"device_id": {"$in": owned_ids}}
+
+        latest_record = db["prediction_logs"].find_one(query, sort=[("_id", -1)])
         if not latest_record:
             return {
                 "message": "No machine learning logs compiled yet.",
