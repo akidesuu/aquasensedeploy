@@ -29,7 +29,9 @@ const API_BASE_URL = 'https://aquasense-backend-osmi.onrender.com';
 
 export default function LoginScreen() {
   const router = useRouter();
-  const { login } = useAuth();
+  const auth = useAuth() as any;
+  const { login, user } = auth;
+  const isLoadingAuth = Boolean(auth?.isLoadingAuth);
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -60,6 +62,15 @@ export default function LoginScreen() {
       }),
     ]).start();
   }, [cardOpacity, cardTranslateY]);
+
+  useEffect(() => {
+    if (!isLoadingAuth && user) {
+      const roleLower = String(user.role || '').trim().toLowerCase();
+      if (roleLower === 'farmer') {
+        router.replace('/(tabs)');
+      }
+    }
+  }, [isLoadingAuth, user, router]);
 
   useEffect(() => {
     Animated.timing(emailFocusAnim, {
@@ -108,7 +119,7 @@ export default function LoginScreen() {
         }),
       });
 
-      const data = await response.json();
+      const data = await response.json().catch(() => ({}));
 
       if (!response.ok) {
         throw new Error(data.detail || 'Invalid email or password configuration.');
@@ -121,16 +132,20 @@ export default function LoginScreen() {
         return;
       }
 
-      const authToken = data.token || data.access_token || null;
+      const authToken = data.access_token || data.token || null;
       await login({
+        id: data.id || data.user?.id,
         name: data.username || data.name || data.user?.name || email.split('@')[0],
+        username: data.username || data.name || data.user?.name || email.split('@')[0],
         email: data.email || data.user?.email || email.trim().toLowerCase(),
         role: data.role || 'Farmer',
         location: data.location || data.user?.location || 'Unassigned Field Station',
         token: authToken,
+        access_token: authToken,
       } as any);
 
-      router.replace('/');
+      setLoading(false);
+      router.replace('/(tabs)');
     } catch (error: any) {
       triggerShake(
         error?.message || 'Unable to reach the AquaSense backend server.'

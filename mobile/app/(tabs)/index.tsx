@@ -31,6 +31,7 @@ import ComponentsScreen, { FloaterDevice } from './ComponentsScreen';
 
 const { width } = Dimensions.get('window');
 const API_BASE_URL = 'https://aquasense-backend-osmi.onrender.com';
+const HEARTBEAT_INTERVAL_MS = 45000;
 
 type ScreenTab = 'home' | 'components' | 'alert' | 'profile';
 
@@ -42,24 +43,14 @@ const isOwnedByFarmer = (dev: any, farmer: MobileUser | null): boolean => {
   )
     .trim()
     .toLowerCase();
-  const ownerName = String(
-    dev.assignedUserName ?? dev.assigned_user_name ?? ''
-  )
-    .trim()
-    .toLowerCase();
 
-  const candidateIds = [farmer.id, farmer.email, farmer.username, farmer.name]
+  if (!ownerId) return false;
+
+  const candidateIds = [farmer.id, farmer.email]
     .filter(Boolean)
     .map((v) => String(v).trim().toLowerCase());
 
-  const candidateNames = [farmer.name, farmer.username]
-    .filter(Boolean)
-    .map((v) => String(v).trim().toLowerCase());
-
-  const idMatches = Boolean(ownerId) && candidateIds.includes(ownerId);
-  const nameMatches = Boolean(ownerName) && candidateNames.includes(ownerName);
-
-  return idMatches || nameMatches;
+  return candidateIds.includes(ownerId);
 };
 
 export default function MobileDashboard() {
@@ -95,6 +86,28 @@ export default function MobileDashboard() {
       router.replace('/login');
     }
   }, [isLoadingAuth, user, router]);
+
+  useEffect(() => {
+    if (!user || !token) return;
+
+    const sendHeartbeat = async () => {
+      try {
+        await fetch(`${API_BASE_URL}/auth/heartbeat`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+        });
+      } catch {
+        // Ignore transient network errors during heartbeat
+      }
+    };
+
+    sendHeartbeat();
+    const timer = setInterval(sendHeartbeat, HEARTBEAT_INTERVAL_MS);
+    return () => clearInterval(timer);
+  }, [user, token]);
 
   const animateToScreen = useCallback(
     (nextScreen: ScreenTab) => {

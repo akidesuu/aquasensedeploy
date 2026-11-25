@@ -19,7 +19,8 @@ import {
   Users,
   ShieldAlert,
   Crown,
-  RefreshCw
+  RefreshCw,
+  Activity
 } from 'lucide-react';
 
 export type AccountRole = 'Farmer' | 'Admin' | 'Super Admin';
@@ -33,6 +34,8 @@ export interface Account {
   role: AccountRole;
   createdAt: string;
   status: AccountStatus;
+  is_online?: boolean;
+  last_seen_at?: string | null;
 }
 
 export interface AccountData {
@@ -44,6 +47,8 @@ export interface AccountData {
   status?: string;
   password?: string;
   createdAt?: string;
+  is_online?: boolean;
+  last_seen_at?: string | null;
 }
 
 interface AccountManagementProps {
@@ -72,7 +77,7 @@ const getAuthHeaders = () => {
   const token = localStorage.getItem('token') || localStorage.getItem('access_token');
   return {
     'Content-Type': 'application/json',
-    ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+    ...(token ? { Authorization: `Bearer ${token}` } : {})
   };
 };
 
@@ -96,6 +101,16 @@ const formatDateTime = (date: Date) => {
   });
 };
 
+const formatLastSeen = (isoStr?: string | null) => {
+  if (!isoStr) return 'Never';
+  try {
+    const dt = new Date(isoStr);
+    return dt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  } catch {
+    return 'Unknown';
+  }
+};
+
 export default function AccountManagement({
   onAddAccount,
   onEditAccount,
@@ -106,6 +121,7 @@ export default function AccountManagement({
   const [search, setSearch] = useState('');
   const [roleFilter, setRoleFilter] = useState<'All' | AccountRole>('All');
   const [statusFilter, setStatusFilter] = useState<'All' | AccountStatus>('All');
+  const [presenceFilter, setPresenceFilter] = useState<'All' | 'Online' | 'Offline'>('All');
   const [showModal, setShowModal] = useState(false);
   const [editingAccount, setEditingAccount] = useState<Account | null>(null);
   const [form, setForm] = useState<AccountForm>(EMPTY_FORM);
@@ -117,8 +133,8 @@ export default function AccountManagement({
     message: string;
   } | null>(null);
 
-  const fetchAccounts = async () => {
-    setIsLoading(true);
+  const fetchAccounts = async (silent = false) => {
+    if (!silent) setIsLoading(true);
     try {
       const response = await fetch(API_BASE_URL, {
         headers: getAuthHeaders()
@@ -127,14 +143,20 @@ export default function AccountManagement({
       const data: Account[] = await response.json();
       setAccounts(data);
     } catch (err: any) {
-      showError(err.message || 'Error connecting to the database server.');
+      if (!silent) {
+        showError(err.message || 'Error connecting to the database server.');
+      }
     } finally {
-      setIsLoading(false);
+      if (!silent) setIsLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchAccounts();
+    fetchAccounts(false);
+    const interval = setInterval(() => {
+      fetchAccounts(true);
+    }, 10000); // Poll presence every 10 seconds dynamically
+    return () => clearInterval(interval);
   }, []);
 
   const filteredAccounts = useMemo(() => {
@@ -148,13 +170,20 @@ export default function AccountManagement({
         account.location.toLowerCase().includes(keyword);
       const matchesRole = roleFilter === 'All' || account.role === roleFilter;
       const matchesStatus = statusFilter === 'All' || (account.status ?? 'Active') === statusFilter;
-      return matchesSearch && matchesRole && matchesStatus;
+      const isOnline = Boolean(account.is_online);
+      const matchesPresence =
+        presenceFilter === 'All' ||
+        (presenceFilter === 'Online' && isOnline) ||
+        (presenceFilter === 'Offline' && !isOnline);
+
+      return matchesSearch && matchesRole && matchesStatus && matchesPresence;
     });
-  }, [accounts, search, roleFilter, statusFilter]);
+  }, [accounts, search, roleFilter, statusFilter, presenceFilter]);
 
   const farmerCount = accounts.filter((acc) => acc.role === 'Farmer').length;
   const adminCount = accounts.filter((acc) => acc.role === 'Admin').length;
   const superAdminCount = accounts.filter((acc) => acc.role === 'Super Admin').length;
+  const onlineCount = accounts.filter((acc) => Boolean(acc.is_online)).length;
 
   const openAddModal = () => {
     setEditingAccount(null);
@@ -255,7 +284,7 @@ export default function AccountManagement({
         }
         const updated: Account = await response.json();
         setAccounts((prev) =>
-          prev.map((acc) => (acc.id === editingAccount.id ? updated : acc))
+          prev.map((acc) => (acc.id === editingAccount.id ? { ...acc, ...updated } : acc))
         );
         showSuccess(`Account "${name}" updated successfully.`);
         if (onEditAccount) onEditAccount(editingAccount.id, updated);
@@ -347,6 +376,15 @@ export default function AccountManagement({
           </div>
         </div>
         <div style={styles.statCard}>
+          <div style={{ ...styles.statIcon, background: '#f0fdf4', color: '#16a34a' }}>
+            <Activity size={21} />
+          </div>
+          <div>
+            <div style={styles.statLabel}>LIVE ONLINE</div>
+            <div style={styles.statValue}>{onlineCount}</div>
+          </div>
+        </div>
+        <div style={styles.statCard}>
           <div style={{ ...styles.statIcon, background: '#ecfdf5', color: '#047857' }}>
             <User size={21} />
           </div>
@@ -361,16 +399,7 @@ export default function AccountManagement({
           </div>
           <div>
             <div style={styles.statLabel}>SYSTEM ADMINS</div>
-            <div style={styles.statValue}>{adminCount}</div>
-          </div>
-        </div>
-        <div style={styles.statCard}>
-          <div style={{ ...styles.statIcon, background: '#f3e8ff', color: '#7e22ce' }}>
-            <Crown size={21} />
-          </div>
-          <div>
-            <div style={styles.statLabel}>SUPER ADMINS</div>
-            <div style={styles.statValue}>{superAdminCount}</div>
+            <div style={styles.statValue}>{adminCount + superAdminCount}</div>
           </div>
         </div>
       </div>
@@ -408,6 +437,15 @@ export default function AccountManagement({
               <option value="Super Admin">Super Admin</option>
             </select>
             <select
+              value={presenceFilter}
+              onChange={(event) => setPresenceFilter(event.target.value as 'All' | 'Online' | 'Offline')}
+              style={styles.filterSelect}
+            >
+              <option value="All">All Connections</option>
+              <option value="Online">Online Now</option>
+              <option value="Offline">Offline</option>
+            </select>
+            <select
               value={statusFilter}
               onChange={(event) => setStatusFilter(event.target.value as 'All' | AccountStatus)}
               style={styles.filterSelect}
@@ -424,6 +462,7 @@ export default function AccountManagement({
             <thead>
               <tr>
                 <th style={styles.th}>ACCOUNT INFO</th>
+                <th style={styles.th}>PRESENCE</th>
                 <th style={styles.th}>FARM / LOCATION</th>
                 <th style={styles.th}>ASSIGNED ROLE</th>
                 <th style={styles.th}>CREATED DATE</th>
@@ -434,7 +473,7 @@ export default function AccountManagement({
             <tbody>
               {isLoading ? (
                 <tr>
-                  <td colSpan={6} style={{ ...styles.emptyCell, padding: '40px' }}>
+                  <td colSpan={7} style={{ ...styles.emptyCell, padding: '40px' }}>
                     <RefreshCw size={24} className="animate-spin" color="#2563eb" />
                     <span style={{ fontSize: 13, color: '#64748b', marginTop: 8, display: 'block' }}>
                       Loading database records...
@@ -443,7 +482,7 @@ export default function AccountManagement({
                 </tr>
               ) : filteredAccounts.length === 0 ? (
                 <tr>
-                  <td colSpan={6} style={styles.emptyCell}>
+                  <td colSpan={7} style={styles.emptyCell}>
                     <Users size={34} color="#64748b" />
                     <strong style={{ display: 'block', marginTop: 8 }}>
                       No matching accounts found
@@ -454,107 +493,131 @@ export default function AccountManagement({
                   </td>
                 </tr>
               ) : (
-                filteredAccounts.map((account) => (
-                  <tr key={account.id} style={styles.tr}>
-                    <td style={styles.td}>
-                      <div style={styles.accountCell}>
-                        <div
-                          style={{
-                            ...styles.avatar,
-                            ...(account.role === 'Super Admin'
-                              ? styles.superAdminAvatar
-                              : account.role === 'Admin'
-                              ? styles.adminAvatar
-                              : styles.farmerAvatar)
-                          }}
-                        >
-                          {account.name.charAt(0).toUpperCase()}
-                        </div>
-                        <div style={{ minWidth: 0 }}>
-                          <div style={styles.accountName}>{account.name}</div>
-                          <div style={styles.accountEmail}>
-                            <Mail size={13} style={{ flexShrink: 0 }} />
-                            {account.email}
+                filteredAccounts.map((account) => {
+                  const isOnline = Boolean(account.is_online);
+                  return (
+                    <tr key={account.id} style={styles.tr}>
+                      <td style={styles.td}>
+                        <div style={styles.accountCell}>
+                          <div
+                            style={{
+                              ...styles.avatar,
+                              ...(account.role === 'Super Admin'
+                                ? styles.superAdminAvatar
+                                : account.role === 'Admin'
+                                ? styles.adminAvatar
+                                : styles.farmerAvatar)
+                            }}
+                          >
+                            {account.name.charAt(0).toUpperCase()}
                           </div>
-                          <div style={styles.accountId}>ID: {account.id}</div>
+                          <div style={{ minWidth: 0 }}>
+                            <div style={styles.accountName}>{account.name}</div>
+                            <div style={styles.accountEmail}>
+                              <Mail size={13} style={{ flexShrink: 0 }} />
+                              {account.email}
+                            </div>
+                            <div style={styles.accountId}>ID: {account.id}</div>
+                          </div>
                         </div>
-                      </div>
-                    </td>
-                    <td style={styles.td}>
-                      <div style={styles.locationCell}>
-                        <MapPin size={15} color="#64748b" style={{ flexShrink: 0 }} />
-                        <span>{account.location}</span>
-                      </div>
-                    </td>
-                    <td style={styles.td}>
-                      <span
-                        style={{
-                          ...styles.roleBadge,
-                          ...(account.role === 'Super Admin'
-                            ? styles.superAdminBadge
-                            : account.role === 'Admin'
-                            ? styles.adminBadge
-                            : styles.farmerBadge)
-                        }}
-                      >
-                        {account.role === 'Super Admin' && <Crown size={12} style={{ marginRight: 4 }} />}
-                        {account.role === 'Admin' && <ShieldCheck size={12} style={{ marginRight: 4 }} />}
-                        {account.role === 'Farmer' && <User size={12} style={{ marginRight: 4 }} />}
-                        {account.role}
-                      </span>
-                    </td>
-                    <td style={styles.td}>
-                      <div style={styles.dateCell}>
-                        <Clock3 size={14} color="#64748b" style={{ flexShrink: 0 }} />
-                        {account.createdAt}
-                      </div>
-                    </td>
-                    <td style={styles.td}>
-                      <span
-                        style={{
-                          ...styles.statusBadge,
-                          ...(account.status === 'Inactive' ? styles.inactiveBadge : styles.activeBadge)
-                        }}
-                      >
+                      </td>
+                      <td style={styles.td}>
+                        <div style={styles.presenceContainer}>
+                          <span
+                            style={{
+                              ...styles.presenceBadge,
+                              ...(isOnline ? styles.onlinePresenceBadge : styles.offlinePresenceBadge)
+                            }}
+                          >
+                            <span
+                              style={{
+                                ...styles.presenceDot,
+                                ...(isOnline ? styles.onlinePresenceDot : styles.offlinePresenceDot)
+                              }}
+                            />
+                            {isOnline ? 'ONLINE' : 'OFFLINE'}
+                          </span>
+                          <span style={styles.lastSeenSubtext}>
+                            {isOnline ? 'Active now' : `Seen ${formatLastSeen(account.last_seen_at)}`}
+                          </span>
+                        </div>
+                      </td>
+                      <td style={styles.td}>
+                        <div style={styles.locationCell}>
+                          <MapPin size={15} color="#64748b" style={{ flexShrink: 0 }} />
+                          <span>{account.location}</span>
+                        </div>
+                      </td>
+                      <td style={styles.td}>
                         <span
                           style={{
-                            ...styles.statusDot,
-                            ...(account.status === 'Inactive' ? styles.inactiveDot : styles.activeDot)
+                            ...styles.roleBadge,
+                            ...(account.role === 'Super Admin'
+                              ? styles.superAdminBadge
+                              : account.role === 'Admin'
+                              ? styles.adminBadge
+                              : styles.farmerBadge)
                           }}
-                        />
-                        {account.status ?? 'Active'}
-                      </span>
-                    </td>
-                    <td style={styles.td}>
-                      <div style={styles.actions}>
-                        <button
-                          type="button"
-                          title="Edit Account"
-                          aria-label={`Edit ${account.name}`}
-                          onClick={() => openEditModal(account)}
-                          style={styles.editButton}
                         >
-                          <Pencil size={15} />
-                        </button>
-                        <button
-                          type="button"
-                          title="Delete Account"
-                          aria-label={`Delete ${account.name}`}
-                          onClick={() => setDeleteTarget(account)}
-                          style={styles.deleteButton}
+                          {account.role === 'Super Admin' && <Crown size={12} style={{ marginRight: 4 }} />}
+                          {account.role === 'Admin' && <ShieldCheck size={12} style={{ marginRight: 4 }} />}
+                          {account.role === 'Farmer' && <User size={12} style={{ marginRight: 4 }} />}
+                          {account.role}
+                        </span>
+                      </td>
+                      <td style={styles.td}>
+                        <div style={styles.dateCell}>
+                          <Clock3 size={14} color="#64748b" style={{ flexShrink: 0 }} />
+                          {account.createdAt}
+                        </div>
+                      </td>
+                      <td style={styles.td}>
+                        <span
+                          style={{
+                            ...styles.statusBadge,
+                            ...(account.status === 'Inactive' ? styles.inactiveBadge : styles.activeBadge)
+                          }}
                         >
-                          <Trash2 size={15} />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))
+                          <span
+                            style={{
+                              ...styles.statusDot,
+                              ...(account.status === 'Inactive' ? styles.inactiveDot : styles.activeDot)
+                            }}
+                          />
+                          {account.status ?? 'Active'}
+                        </span>
+                      </td>
+                      <td style={styles.td}>
+                        <div style={styles.actions}>
+                          <button
+                            type="button"
+                            title="Edit Account"
+                            aria-label={`Edit ${account.name}`}
+                            onClick={() => openEditModal(account)}
+                            style={styles.editButton}
+                          >
+                            <Pencil size={15} />
+                          </button>
+                          <button
+                            type="button"
+                            title="Delete Account"
+                            aria-label={`Delete ${account.name}`}
+                            onClick={() => setDeleteTarget(account)}
+                            style={styles.deleteButton}
+                          >
+                            <Trash2 size={15} />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })
               )}
             </tbody>
           </table>
         </div>
         <div style={styles.footer}>
-          Showing <strong>{filteredAccounts.length}</strong> of <strong>{accounts.length}</strong> registered accounts
+          Showing <strong>{filteredAccounts.length}</strong> of <strong>{accounts.length}</strong> registered accounts ({onlineCount} currently online)
         </div>
       </section>
 
@@ -975,7 +1038,7 @@ const styles: Record<string, React.CSSProperties> = {
     borderCollapse: 'collapse',
     textAlign: 'left',
     fontSize: 13,
-    minWidth: 640
+    minWidth: 720
   },
   th: {
     padding: '12px 16px',
@@ -1043,6 +1106,48 @@ const styles: Record<string, React.CSSProperties> = {
     color: '#94a3b8',
     fontSize: 11,
     marginTop: 1
+  },
+  presenceContainer: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 2
+  },
+  presenceBadge: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 5,
+    padding: '3px 8px',
+    borderRadius: 12,
+    fontSize: 10,
+    fontWeight: 800,
+    letterSpacing: '0.04em',
+    width: 'fit-content'
+  },
+  onlinePresenceBadge: {
+    background: '#e0f2fe',
+    color: '#0284c7',
+    border: '1px solid #bae6fd'
+  },
+  offlinePresenceBadge: {
+    background: '#f1f5f9',
+    color: '#64748b',
+    border: '1px solid #e2e8f0'
+  },
+  presenceDot: {
+    width: 6,
+    height: 6,
+    borderRadius: '50%'
+  },
+  onlinePresenceDot: {
+    background: '#0284c7'
+  },
+  offlinePresenceDot: {
+    background: '#94a3b8'
+  },
+  lastSeenSubtext: {
+    fontSize: 10,
+    color: '#94a3b8',
+    fontWeight: 500
   },
   locationCell: {
     display: 'flex',
