@@ -79,28 +79,42 @@ async function triggerThresholdNotification(
   });
 }
 
-const isOwnedByFarmer = (dev: any, farmer: UserData | null): boolean => {
-  if (!farmer) return false;
+const isOwnedByFarmer = (
+  dev: any,
+  farmer: UserData | null,
+  matchedAccount?: { id?: string; name?: string; email?: string } | null
+): boolean => {
+  if (!farmer && !matchedAccount) return false;
 
-  const ownerId = String(
-    dev.assignedUserId ?? dev.assigned_user_id ?? dev.assigned_user ?? ''
-  )
-    .trim()
-    .toLowerCase();
-
-  if (!ownerId) return false;
-
-  const farmerAny = farmer as any;
-  const candidateIds = [
-    farmerAny.id,
-    farmer.email,
-    farmerAny.username,
-    farmer.name,
+  const ownerValues = [
+    dev?.assignedUserId,
+    dev?.assigned_user_id,
+    dev?.assigned_user,
+    dev?.assignedUserEmail,
+    dev?.assigned_user_email,
+    dev?.assignedUserName,
+    dev?.assigned_user_name,
   ]
     .filter(Boolean)
     .map((v) => String(v).trim().toLowerCase());
 
-  return candidateIds.includes(ownerId);
+  if (ownerValues.length === 0) return false;
+
+  const farmerAny = (farmer || {}) as any;
+  const candidateIds = [
+    farmerAny.id,
+    farmerAny._id,
+    farmer?.email,
+    farmerAny.username,
+    farmer?.name,
+    matchedAccount?.id,
+    matchedAccount?.email,
+    matchedAccount?.name,
+  ]
+    .filter(Boolean)
+    .map((v) => String(v).trim().toLowerCase());
+
+  return ownerValues.some((owner) => candidateIds.includes(owner));
 };
 
 export default function MobileDashboard() {
@@ -120,8 +134,14 @@ export default function MobileDashboard() {
   const [isConnected, setIsConnected] = useState<boolean>(true);
 
   const hasRedirectedRef = useRef<boolean>(false);
+  const consecutiveFetchFailuresRef = useRef<number>(0);
+  const activeUserRef = useRef<UserData | null>(user);
   const stageOpacity = useRef(new Animated.Value(1)).current;
   const stageTranslateY = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    activeUserRef.current = user;
+  }, [user]);
 
   const devicesRef = useRef<FloaterDevice[]>([]);
   useEffect(() => {
@@ -204,21 +224,96 @@ export default function MobileDashboard() {
     [currentScreen, stageOpacity, stageTranslateY]
   );
 
+  const sendPresenceHeartbeat = useCallback(
+    async (isOnline = true, targetUser: UserData | null = activeUserRef.current) => {
+      if (!targetUser) return;
+      const payload = {
+        id: (targetUser as any)?.id,
+        email: targetUser.email,
+        name: targetUser.name || (targetUser as any)?.username,
+        online: isOnline,
+        is_online: isOnline,
+      };
+      try {
+        await fetch(`${API_BASE_URL}/api/accounts/heartbeat`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        if (!isOnline) {
+          await fetch(`${API_BASE_URL}/api/accounts/logout`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          }).catch(() => null);
+        }
+      } catch {
+        // Optional endpoint; ignore if backend does not implement /heartbeat
+      }
+    },
+    []
+  );
+
+  const handleMobileLogout = useCallback(async () => {
+    const currentFarmer = activeUserRef.current;
+    setIsConnected(false);
+    setDevices([]);
+    setSelectedDevice(null);
+    setCurrentScreen('home');
+    await sendPresenceHeartbeat(false, currentFarmer);
+    logout();
+    router.replace('/login');
+  }, [logout, router, sendPresenceHeartbeat]);
+
   const fetchFarmerDevices = useCallback(async () => {
     if (!user) return;
     try {
-      const response = await fetch(`${API_BASE_URL}/api/devices`, {
-        headers: { 'Content-Type': 'application/json' },
-      });
-      if (!response.ok) {
-        setIsConnected(false);
-        setDevices([]);
+      const [devRes, accRes] = await Promise.all([
+        fetch(`${API_BASE_URL}/api/devices`, {
+          headers: { 'Content-Type': 'application/json' },
+        }),
+        fetch(`${API_BASE_URL}/api/accounts`, {
+          headers: { 'Content-Type': 'application/json' },
+        }).catch(() => null),
+      ]);
+
+      if (!devRes.ok) {
+        consecutiveFetchFailuresRef.current += 1;
+        if (consecutiveFetchFailuresRef.current >= 2) {
+          setIsConnected(false);
+        }
         return;
       }
 
-      const rawDevices = await response.json();
+      const rawDevices = await devRes.json();
       const list = Array.isArray(rawDevices) ? rawDevices : [];
-      const owned = list.filter((dev) => isOwnedByFarmer(dev, user));
+
+      let matchedAccount: { id?: string; name?: string; email?: string } | null = null;
+      if (accRes && accRes.ok) {
+        const rawAccounts = await accRes.json();
+        const accountsList = Array.isArray(rawAccounts) ? rawAccounts : [];
+        const userEmail = String(user.email || '').trim().toLowerCase();
+        const userName = String(user.name || (user as any)?.username || '')
+          .trim()
+          .toLowerCase();
+        const userId = String((user as any)?.id || '').trim().toLowerCase();
+
+        matchedAccount =
+          accountsList.find((acc: any) => {
+            const accId = String(acc?.id || '').trim().toLowerCase();
+            const accEmail = String(acc?.email || '').trim().toLowerCase();
+            const accName = String(acc?.name || '').trim().toLowerCase();
+            return (
+              (userId && accId === userId) ||
+              (userEmail && accEmail === userEmail) ||
+              (userName && accName === userName)
+            );
+          }) || null;
+      }
+
+      const owned = list.filter((dev) =>
+        isOwnedByFarmer(dev, user, matchedAccount)
+      );
 
       const formattedDevices: FloaterDevice[] = owned.map((dev: any, idx: number) => {
         const devId = String(dev.device_id || dev.id || `NODE_${idx + 1}`);
@@ -248,11 +343,15 @@ export default function MobileDashboard() {
         };
       });
 
+      consecutiveFetchFailuresRef.current = 0;
       setDevices(formattedDevices);
       setIsConnected(true);
     } catch (err) {
       console.warn('Failed to fetch farmer devices:', err);
-      setIsConnected(false);
+      consecutiveFetchFailuresRef.current += 1;
+      if (consecutiveFetchFailuresRef.current >= 2) {
+        setIsConnected(false);
+      }
     } finally {
       setIsLoading(false);
       setIsRefreshing(false);
@@ -359,11 +458,21 @@ export default function MobileDashboard() {
   }, [devices]);
 
   useEffect(() => {
-    if (user) {
-      setIsLoading(true);
-      fetchFarmerDevices();
+    if (!user) {
+      setIsConnected(false);
+      return;
     }
-  }, [user, fetchFarmerDevices]);
+
+    setIsLoading(true);
+    sendPresenceHeartbeat(true, user);
+    fetchFarmerDevices();
+
+    const heartbeatTimer = setInterval(() => {
+      sendPresenceHeartbeat(true, user);
+    }, 15000);
+
+    return () => clearInterval(heartbeatTimer);
+  }, [user, fetchFarmerDevices, sendPresenceHeartbeat]);
 
   useEffect(() => {
     if (devices.length > 0) {
@@ -386,6 +495,7 @@ export default function MobileDashboard() {
 
   const handleRefresh = () => {
     setIsRefreshing(true);
+    sendPresenceHeartbeat(true, user);
     fetchFarmerDevices();
   };
 
@@ -498,7 +608,7 @@ export default function MobileDashboard() {
             onSelectAlertDevice={handleSelectDeviceFromAlert}
           />
         ) : currentScreen === 'profile' ? (
-          <ProfileScreen onLogout={logout} />
+          <ProfileScreen onLogout={handleMobileLogout} />
         ) : (
           <ScrollView
             contentContainerStyle={styles.mainContentScrollBody}

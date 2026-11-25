@@ -80,6 +80,7 @@ const BASE_URL =
 const CLEAN_BASE_URL = BASE_URL.replace(/\/$/, '');
 const API_BASE_URL = `${CLEAN_BASE_URL}/api/accounts`;
 const DEVICES_API_URL = `${CLEAN_BASE_URL}/api/devices`;
+const ONLINE_WINDOW_MS = 45000; // Consider online if active within 45s
 
 const getAuthHeaders = () => {
   const token = localStorage.getItem('token') || localStorage.getItem('access_token');
@@ -87,6 +88,16 @@ const getAuthHeaders = () => {
     'Content-Type': 'application/json',
     ...(token ? { Authorization: `Bearer ${token}` } : {})
   };
+};
+
+const isAccountLiveOnline = (account: Account): boolean => {
+  if (account.last_seen_at) {
+    const seenMs = Date.parse(account.last_seen_at);
+    if (!Number.isNaN(seenMs) && Date.now() - seenMs <= ONLINE_WINDOW_MS) {
+      return true;
+    }
+  }
+  return Boolean(account.is_online);
 };
 
 const EMPTY_FORM: AccountForm = {
@@ -111,12 +122,9 @@ const formatDateTime = (date: Date) => {
 
 const formatLastSeen = (isoStr?: string | null) => {
   if (!isoStr) return 'Never';
-  try {
-    const dt = new Date(isoStr);
-    return dt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  } catch {
-    return 'Unknown';
-  }
+  const dt = new Date(isoStr);
+  if (Number.isNaN(dt.getTime())) return 'Unknown';
+  return dt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 };
 
 export default function AccountManagement({
@@ -150,6 +158,17 @@ export default function AccountManagement({
     window.setTimeout(() => setNotice(null), 3500);
   }, []);
 
+  const sendHeartbeat = useCallback(async () => {
+    try {
+      await fetch(`${API_BASE_URL}/heartbeat`, {
+        method: 'POST',
+        headers: getAuthHeaders()
+      });
+    } catch {
+      // Optional endpoint; ignore if not implemented on backend
+    }
+  }, []);
+
   const fetchAccounts = useCallback(async (silent = false) => {
     if (!silent) setIsLoading(true);
     try {
@@ -176,12 +195,22 @@ export default function AccountManagement({
   }, [showError]);
 
   useEffect(() => {
+    sendHeartbeat();
     fetchAccounts(false);
-    const interval = setInterval(() => {
+
+    const heartbeatTimer = window.setInterval(() => {
+      sendHeartbeat();
+    }, 15000);
+
+    const pollTimer = window.setInterval(() => {
       fetchAccounts(true);
-    }, 10000);
-    return () => clearInterval(interval);
-  }, [fetchAccounts]);
+    }, 5000);
+
+    return () => {
+      window.clearInterval(heartbeatTimer);
+      window.clearInterval(pollTimer);
+    };
+  }, [fetchAccounts, sendHeartbeat]);
 
   const deviceCountsByAccount = useMemo(() => {
     const map = new Map<string, DeviceCountSummary>();
@@ -232,7 +261,7 @@ export default function AccountManagement({
         account.email.toLowerCase().includes(keyword) ||
         account.location.toLowerCase().includes(keyword);
       const matchesRole = roleFilter === 'All' || account.role === roleFilter;
-      const isOnline = Boolean(account.is_online);
+      const isOnline = isAccountLiveOnline(account);
       const matchesPresence =
         presenceFilter === 'All' ||
         (presenceFilter === 'Online' && isOnline) ||
@@ -245,7 +274,7 @@ export default function AccountManagement({
   const farmerCount = accounts.filter((acc) => acc.role === 'Farmer').length;
   const adminCount = accounts.filter((acc) => acc.role === 'Admin').length;
   const superAdminCount = accounts.filter((acc) => acc.role === 'Super Admin').length;
-  const onlineCount = accounts.filter((acc) => Boolean(acc.is_online)).length;
+  const onlineCount = accounts.filter((acc) => isAccountLiveOnline(acc)).length;
 
   const openAddModal = () => {
     setEditingAccount(null);
@@ -538,7 +567,7 @@ export default function AccountManagement({
                 </tr>
               ) : (
                 filteredAccounts.map((account) => {
-                  const isOnline = Boolean(account.is_online);
+                  const isOnline = isAccountLiveOnline(account);
                   const deviceSummary = deviceCountsByAccount.get(account.id) ?? {
                     total: 0,
                     online: 0
